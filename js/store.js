@@ -656,7 +656,7 @@ window.SB = window.SB || {};
           totalKomunitas: s.total_komunitas || 0,
           donasiMenunggu: (dons.data || []).filter((d) => d.status === "menunggu_konfirmasi").length,
           pengajuanMenunggu: (reqs.data || []).filter((r) => r.status === "menunggu_verifikasi").length,
-          perKategori, perBulan
+          perKategori, perBulan: bulan
         };
       },
       async listLogs(requestId) {
@@ -665,8 +665,16 @@ window.SB = window.SB || {};
         const { data } = await q; return data || [];
       },
       async listAudit() {
-        const { data } = await sb.from("audit_logs").select("*").order("created_at", { ascending: false }).limit(100);
-        return data || [];
+        const { data, error } = await sb.from("audit_logs").select("*").order("created_at", { ascending: false }).limit(100);
+        if (error) throw new Error(error.message);
+        const rows = data || [];
+        const ids = Array.from(new Set(rows.map((r) => r.actor_id).filter(Boolean)));
+        const namaById = {};
+        if (ids.length) {
+          const { data: profs } = await sb.from("profiles").select("id,full_name").in("id", ids);
+          (profs || []).forEach((p) => { namaById[p.id] = p.full_name; });
+        }
+        return rows.map((a) => ({ tanggal: a.created_at, aktor: namaById[a.actor_id] || "-", aksi: a.action, entitas: a.entity, entitasId: a.entity_id, detail: a.detail || {} }));
       },
       async laporPenyalahgunaan(data) {
         // tersimpan sebagai audit log oleh admin; di frontend demo saja

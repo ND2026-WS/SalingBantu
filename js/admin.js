@@ -429,7 +429,8 @@
       "</tbody></table></div></div>";
     mainEl().innerHTML = html;
 
-    document.getElementById("btn-csv").addEventListener("click", () => {
+    document.getElementById("btn-csv").addEventListener("click", async () => {
+      if (!cache.requests.length) { try { cache.requests = await S.store.listRequests({}); } catch (e) { /* pakai cache yang ada */ } }
       const rows = [["Kode", "Judul", "Kategori", "Sub", "Kota", "Status", "Kebutuhan", "Terkumpul", "Tersalur", "Tanggal"]];
       cache.requests.forEach((r) => rows.push([r.code, r.judul, r.kategori, r.sub, r.kota, r.status, r.kebutuhan, r.terkumpul, r.tersalur, r.tanggal]));
       const csv = rows.map((row) => row.map((c) => '"' + String(c == null ? "" : c).replace(/"/g, '""') + '"').join(";")).join("\n");
