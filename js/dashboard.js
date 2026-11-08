@@ -14,6 +14,7 @@
     { id: "pengajuan", label: "Pengajuan Saya", icon: "file" },
     { id: "beri", label: "Bantuan yang Saya Berikan", icon: "gift" },
     { id: "donasi", label: "Riwayat Donasi", icon: "credit" },
+    { id: "ziswaf", label: "ZISWAF Saya", icon: "heartHand" },
     { id: "volunteer", label: "Kegiatan Volunteer", icon: "users" },
     { id: "notifikasi", label: "Notifikasi", icon: "bell" },
     { id: "profil", label: "Pengaturan Profil", icon: "sliders" },
@@ -215,6 +216,29 @@
       }));
   }
 
+  /* ================= ZISWAF SAYA ================= */
+  async function vZiswafUser() {
+    const rows = await S.store.listZiswaf({ donorId: user.id }).catch(() => []);
+    const total = rows.filter((z) => z.status === "terverifikasi").reduce((a, b) => a + (b.jumlah || 0), 0);
+    let html = head("ZISWAF Saya", "Riwayat zakat, infaq, sedekah & wakaf yang kamu catat. Total terverifikasi: <b>" + S.rupiah(total) + "</b>",
+      '<a class="btn btn-primary" href="ziswaf.html">' + S.icon("plus", 15) + " Tambah ZISWAF</a>");
+    html += '<div class="table-wrap"><table class="sb"><thead><tr>' +
+      "<th>Kode</th><th>Tanggal</th><th>Jenis & Program</th><th>Nominal / Rincian</th><th>Metode</th><th>Status</th>" +
+      "</tr></thead><tbody>" +
+      (rows.length ? rows.map((z) => {
+        const m = S.ZISWAF_STATUS[z.status] || { label: z.status, warna: "abu" };
+        return "<tr><td><b>" + S.esc(z.kode) + "</b></td><td>" + S.tanggal(z.tanggal) + "</td>" +
+          "<td>" + S.esc((S.ZISWAF_JENIS[z.jenis] || {}).label || z.jenis) + (z.program ? ' <small style="color:var(--abu)">· ' + S.esc(z.program) + "</small>" : "") + "</td>" +
+          "<td>" + (z.bentuk === "uang" ? "<b>" + S.rupiah(z.jumlah) + "</b>" : S.esc(z.barangDetail || "-")) + "</td>" +
+          "<td>" + S.esc((S.ZISWAF_METODE[z.metode] || {}).label || z.metode || "-") + "</td>" +
+          '<td><span class="badge st-' + m.warna + '">' + S.esc(m.label) + "</span></td></tr>";
+      }).join("") : '<tr><td colspan="6" style="color:var(--abu)">Belum ada catatan ZISWAF. <a href="ziswaf.html">Salurkan kebaikan pertamamu →</a></td></tr>') +
+      "</tbody></table></div>" +
+      '<div class="alert alert-info" style="margin-top:14px">' + S.icon("bell", 16) +
+      "<span>Jazakumullahu khairan. Setiap dana yang terverifikasi akan disalurkan kepada mustahik yang berhak — pantau penyalurannya di halaman <a href='ziswaf.html'>ZISWAF</a>.</span></div>";
+    mainEl().innerHTML = html;
+  }
+
   /* ================= VOLUNTEER ================= */
   async function vVolunteer() {
     const regs = await S.store.myRegistrations();
@@ -365,6 +389,7 @@
       if (id === "pengajuan") await vPengajuan();
       else if (id === "beri") await vBeri();
       else if (id === "donasi") await vDonasi();
+      else if (id === "ziswaf") await vZiswafUser();
       else if (id === "volunteer") await vVolunteer();
       else if (id === "notifikasi") await vNotifikasi();
       else if (id === "profil") await vProfil();

@@ -69,6 +69,17 @@ window.SB = window.SB || {};
       ]
     },
     {
+      id: "ziswaf", judul: "Modul ZISWAF", ikon: "gift",
+      desk: "Teks pada halaman ZISWAF dan pita ZISWAF di beranda (zakat, infaq, sedekah, wakaf).",
+      field: [
+        { key: "ziswaf_judul", label: "Judul Bagian ZISWAF", tipe: "text", def: "ZISWAF — Dana Kebaikan Sekolah & Yayasan" },
+        { key: "ziswaf_sub", label: "Deskripsi Singkat", tipe: "textarea", def: "Kelola zakat, infaq, sedekah, dan wakaf dari siswa, guru & tendik, orang tua santri, dan masyarakat umum — tersalurkan kembali kepada yang berhak dengan amanah." },
+        { key: "ziswaf_deskripsi", label: "Paragraf Pengantar Halaman ZISWAF", tipe: "textarea", def: "ZISWAF (Zakat, Infaq, Sedekah, Wakaf) adalah program pengelolaan dana kebaikan yayasan. Dana terkumpul dari keluarga besar sekolah — siswa, guru & tenaga kependidikan, orang tua santri — serta masyarakat umum, kemudian disalurkan kepada penerima manfaat: dari 8 asnaf penerima zakat hingga beasiswa siswa yatim & dhuafa, operasional masjid sekolah, dan pembangunan fasilitas. Seluruh penerimaan dan penyaluran tercatat dan dapat dipantau publik di halaman ini." },
+        { key: "ziswaf_penyaluran_judul", label: "Judul Bagian Penyaluran", tipe: "text", def: "Ke Mana Dana ZISWAF Mengalir?" },
+        { key: "ziswaf_penyaluran_sub", label: "Deskripsi Bagian Penyaluran", tipe: "textarea", def: "Zakat disalurkan kepada 8 asnaf (fakir, miskin, amil, muallaf, riqab, gharim, fisabilillah, ibnu sabil). Infaq, sedekah, dan wakaf dialirkan untuk beasiswa siswa yatim & dhuafa, operasional masjid & sekolah, pembangunan fasilitas, serta aksi kemanusiaan." }
+      ]
+    },
+    {
       id: "cta", judul: "Ajakan Bergabung (CTA)", ikon: "megaphone",
       desk: "Pita ajakan besar di bagian bawah beranda.",
       field: [

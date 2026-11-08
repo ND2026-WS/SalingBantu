@@ -14,6 +14,7 @@
     { id: "pengguna", label: "Manajemen Pengguna", icon: "users" },
     { id: "pengajuan", label: "Manajemen Pengajuan", icon: "file" },
     { id: "donasi", label: "Manajemen Donasi", icon: "credit" },
+    { id: "ziswaf", label: "Modul ZISWAF", icon: "gift" },
     { id: "konten", label: "Manajemen Konten", icon: "megaphone" },
     { id: "isi", label: "Isi Website", icon: "book" },
     { id: "laporan", label: "Laporan", icon: "clipboard" },
@@ -23,7 +24,7 @@
   const BOLEH_KELOLA = ["admin", "pengelola"];
 
   let user = null;
-  let cache = { users: [], requests: [], donations: [], stories: [] };
+  let cache = { users: [], requests: [], donations: [], stories: [], ziswaf: [], ziswafSalur: [] };
 
   function head(judul, sub, tombolHtml) {
     return '<div class="dash-head"><div><h2>' + judul + "</h2><p>" + sub + "</p></div>" + (tombolHtml || "") + "</div>";
@@ -725,6 +726,336 @@
     });
   }
 
+  /* ================= MODUL ZISWAF ================= */
+  function ziswafBadge(status) {
+    const m = S.ZISWAF_STATUS[status] || { label: status, warna: "abu" };
+    return '<span class="badge st-' + m.warna + '">' + S.esc(m.label) + "</span>";
+  }
+
+  async function vZiswaf() {
+    const [dons, salurs, stats] = await Promise.all([
+      S.store.listZiswaf({}),
+      S.store.listZiswafSalur().catch(() => []),
+      S.store.ziswafStats().catch(() => null)
+    ]);
+    cache.ziswaf = dons;
+    cache.ziswafSalur = salurs;
+    const st = stats || { perJenis: {}, perKelompok: {}, totalTerkumpul: 0, totalTersalur: 0, jumlahMenunggu: 0 };
+    const saldoTotal = st.totalTerkumpul - st.totalTersalur;
+
+    let html = head("Modul ZISWAF", "Pengelolaan Zakat, Infaq, Sedekah & Wakaf dari siswa, guru & tendik, orang tua santri, dan umum — beserta penyalurannya.",
+      '<button class="btn btn-blue" id="zw-tambah">' + S.icon("plus", 15) + " Catat ZISWAF (Tunai/Offline)</button> " +
+      '<button class="btn btn-ghost" id="zw-csv">' + S.icon("download", 15) + " Ekspor CSV</button>");
+
+    html += '<div class="kpi-grid" style="grid-template-columns:repeat(4,1fr)">' +
+      kpi("credit", "var(--hijau)", S.rupiah(st.totalTerkumpul), "Dana terverifikasi") +
+      kpi("tool", "var(--oranye)", S.rupiah(st.totalTersalur), "Telah tersalurkan") +
+      kpi("trending", "var(--biru)", S.rupiah(saldoTotal), "Saldo menunggu penyaluran") +
+      kpi("clock", "var(--ungu)", st.jumlahMenunggu, "Menunggu verifikasi") + "</div>";
+
+    /* chip saldo per jenis */
+    html += '<div class="pill-group" style="margin:4px 0 16px">' + Object.entries(S.ZISWAF_JENIS).map(([k, m]) => {
+      const x = st.perJenis[k] || { terkumpul: 0, tersalur: 0, saldo: 0 };
+      return '<span class="pill">' + S.icon(m.icon, 13) + " " + m.label + ": <b>" + S.rupiah(x.terkumpul) +
+        '</b> <small style="color:var(--abu)">(saldo ' + S.rupiah(x.saldo) + ")</small></span>";
+    }).join("") + "</div>";
+
+    /* ---- Penerimaan ---- */
+    html += '<div class="panel"><h3>Penerimaan ZISWAF (' + dons.length + ')</h3>' +
+      '<div class="filter-bar" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">' +
+      '<select id="zf-f-jenis" style="width:auto"><option value="">Semua Jenis</option>' +
+      Object.entries(S.ZISWAF_JENIS).map(([k, m]) => '<option value="' + k + '">' + m.label + "</option>").join("") + "</select>" +
+      '<select id="zf-f-kelompok" style="width:auto"><option value="">Semua Kelompok</option>' +
+      Object.entries(S.ZISWAF_KELOMPOK).map(([k, m]) => '<option value="' + k + '">' + m.label + "</option>").join("") + "</select>" +
+      '<select id="zf-f-status" style="width:auto"><option value="">Semua Status</option>' +
+      Object.entries(S.ZISWAF_STATUS).map(([k, m]) => '<option value="' + k + '">' + m.label + "</option>").join("") + "</select>" +
+      "</div>" +
+      '<div class="table-wrap"><table class="sb"><thead><tr>' +
+      "<th>Kode</th><th>Pemberi</th><th>Jenis & Program</th><th>Nominal</th><th>Status</th><th>Aksi</th></tr></thead><tbody id=\"zw-tbody\"></tbody></table></div></div>";
+
+    /* ---- Penyaluran ---- */
+    html += '<div class="panel"><h3>Penyaluran ZISWAF (Ke Mustahik & Masyarakat)</h3>' +
+      '<p style="font-size:13px;color:var(--abu);margin-bottom:12px">Penyaluran tidak boleh melebihi saldo dana per jenis. Zakat hanya untuk 8 asnaf; kode penyaluran otomatis (ZS-…).</p>' +
+      '<form id="form-zw-salur" class="form-row" style="align-items:end">' +
+      '<div class="field"><label>Jenis Dana</label><select id="zs-jenis">' +
+      Object.entries(S.ZISWAF_JENIS).map(([k, m]) => '<option value="' + k + '">' + m.label + "</option>").join("") + "</select></div>" +
+      '<div class="field"><label>Mustahik / Golongan Penerima</label><select id="zs-mustahik">' +
+      Object.entries(S.ZISWAF_MUSTAHIK).map(([k, m]) => '<option value="' + k + '">' + S.esc(m.label) + (m.asnaf ? " (asnaf)" : "") + "</option>").join("") + "</select></div>" +
+      '<div class="field"><label>Penerima (golongan/instansi)</label><input type="text" id="zs-penerima" placeholder="Contoh: 20 KK warga sekitar sekolah"/></div>' +
+      '<div class="field"><label>Jumlah Orang</label><input type="number" id="zs-jumlah" min="0" placeholder="0"/></div>' +
+      '<div class="field"><label>Bentuk</label><input type="text" id="zs-bentuk" placeholder="Sembako, alat tulis, uang..."/></div>' +
+      '<div class="field"><label>Nominal (Rp)</label><input type="number" id="zs-nominal" min="0" step="10000" placeholder="0"/></div>' +
+      '<div class="field" style="grid-column:1/-1"><label>Catatan / Bukti Penyaluran <span class="req-star">*</span></label><input type="text" id="zs-catatan" placeholder="Contoh: Disalurkan bersama OSIS, foto & daftar penerima tersimpan"/></div>' +
+      '<div class="field"><button class="btn btn-primary" type="submit">Catat Penyaluran</button></div>' +
+      "</form>" +
+      '<div class="table-wrap" style="margin-top:14px"><table class="sb"><thead><tr>' +
+      "<th>Kode</th><th>Jenis</th><th>Mustahik</th><th>Bentuk</th><th>Nominal</th><th>Penerima</th><th>Aksi</th></tr></thead><tbody id=\"zs-tbody\"></tbody></table></div></div>";
+
+    /* ---- Rekap ---- */
+    html += '<div class="grid grid-2">' +
+      '<div class="panel"><h3>Rekap per Jenis Dana</h3><div class="table-wrap"><table class="sb"><thead><tr>' +
+      "<th>Jenis</th><th>Terkumpul</th><th>Tersalur</th><th>Saldo</th></tr></thead><tbody>" +
+      Object.entries(S.ZISWAF_JENIS).map(([k, m]) => {
+        const x = st.perJenis[k] || { terkumpul: 0, tersalur: 0, saldo: 0 };
+        return "<tr><td><b>" + S.esc(m.label) + "</b></td><td>" + S.rupiah(x.terkumpul) + "</td><td>" + S.rupiah(x.tersalur) + "</td><td><b style='color:var(--hijau-tua)'>" + S.rupiah(x.saldo) + "</b></td></tr>";
+      }).join("") + "</tbody></table></div></div>" +
+      '<div class="panel"><h3>Rekap per Kelompok Pemberi</h3><div class="table-wrap"><table class="sb"><thead><tr>' +
+      "<th>Kelompok</th><th>Terkumpul</th><th>Transaksi</th></tr></thead><tbody>" +
+      Object.entries(S.ZISWAF_KELOMPOK).map(([k, m]) => {
+        const x = st.perKelompok[k] || { terkumpul: 0, jumlah: 0 };
+        return "<tr><td><b>" + S.esc(m.label) + "</b></td><td>" + S.rupiah(x.terkumpul) + "</td><td>" + x.jumlah + "</td></tr>";
+      }).join("") + "</tbody></table></div></div></div>";
+
+    mainEl().innerHTML = html;
+
+    function renderTabelPenerimaan() {
+      const fj = document.getElementById("zf-f-jenis").value;
+      const fk = document.getElementById("zf-f-kelompok").value;
+      const fs = document.getElementById("zf-f-status").value;
+      const rows = cache.ziswaf.filter((z) => (!fj || z.jenis === fj) && (!fk || z.kelompok === fk) && (!fs || z.status === fs));
+      document.getElementById("zw-tbody").innerHTML = rows.length ? rows.map((z) =>
+        "<tr><td><b>" + S.esc(z.kode) + "</b><br><small style='color:var(--abu)'>" + S.tanggal(z.tanggal) + "</small></td>" +
+        "<td><b>" + S.esc(z.donorNama) + "</b>" + (z.anonim ? " <small style='color:var(--abu)'>(anonim)</small>" : "") +
+        "<br><small style='color:var(--abu)'>" + S.esc((S.ZISWAF_KELOMPOK[z.kelompok] || {}).label || z.kelompok) + (z.kelas ? " · " + S.esc(z.kelas) : "") + "</small></td>" +
+        "<td>" + S.esc((S.ZISWAF_JENIS[z.jenis] || {}).label || z.jenis) + (z.program ? '<br><small style=\'color:var(--abu)\'>' + S.esc(z.program) + "</small>" : "") + "</td>" +
+        "<td>" + (z.bentuk === "uang" ? "<b>" + S.rupiah(z.jumlah) + "</b>" : "<b>" + S.esc(z.barangDetail || "Barang") + "</b><br><small style='color:var(--abu)'>" + S.esc((S.ZISWAF_METODE[z.metode] || {}).label || z.metode) + "</small>") + "</td>" +
+        "<td>" + ziswafBadge(z.status) + "</td>" +
+        '<td><div class="td-actions">' +
+        (z.status === "menunggu" ? '<button class="btn btn-primary" data-verzw="' + z.id + '|1">Verifikasi</button><button class="btn btn-danger" data-verzw="' + z.id + '|0">Tolak</button>' : "") +
+        '<button class="btn btn-ghost" data-edit-zw="' + z.id + '">Edit</button>' +
+        "</div></td></tr>").join("") : '<tr><td colspan="6" style="color:var(--abu)">Tidak ada data untuk filter ini.</td></tr>';
+      mainEl().querySelectorAll("[data-verzw]").forEach((b) =>
+        b.addEventListener("click", async () => {
+          const [id, ok] = b.dataset.verzw.split("|");
+          const z = cache.ziswaf.find((x) => x.id === id);
+          if (ok === "1") {
+            if (!(await S.konfirmasi("Verifikasi " + z.kode + " (" + (z.bentuk === "uang" ? S.rupiah(z.jumlah) : "barang") + ")? Pastikan dana/barang benar-benar diterima.", "Ya, verifikasi"))) return;
+            await S.store.verifyZiswaf(id, true);
+            S.toast("ZISWAF terverifikasi — saldo dana bertambah.", "sukses");
+          } else {
+            const alasan = prompt("Alasan penolakan " + z.kode + ":") || "";
+            if (!alasan) { S.toast("Alasan penolakan wajib diisi.", "gagal"); return; }
+            await S.store.verifyZiswaf(id, false, alasan);
+            S.toast("ZISWAF ditolak.", "info");
+          }
+          SB.refreshNotif && SB.refreshNotif();
+          vZiswaf();
+        }));
+      mainEl().querySelectorAll("[data-edit-zw]").forEach((b) =>
+        b.addEventListener("click", () => modalEditZiswaf(b.dataset.editZw)));
+    }
+
+    function renderTabelSalur() {
+      document.getElementById("zs-tbody").innerHTML = cache.ziswafSalur.length ? cache.ziswafSalur.map((x) =>
+        "<tr><td><b>" + S.esc(x.kode) + "</b><br><small style='color:var(--abu)'>" + S.tanggal(x.tanggal) + "</small></td>" +
+        "<td>" + S.esc((S.ZISWAF_JENIS[x.jenis] || {}).label || x.jenis) + "</td>" +
+        "<td>" + S.esc((S.ZISWAF_MUSTAHIK[x.mustahik] || {}).label || x.mustahik) + "</td>" +
+        "<td style='max-width:180px'>" + S.esc(x.bentuk || "-") + "</td>" +
+        "<td><b>" + S.rupiah(x.nominal) + "</b></td>" +
+        "<td style='max-width:200px;font-size:12.5px;color:var(--abu)'>" + S.esc(x.penerima || "-") + (x.jumlahPenerima ? " (" + x.jumlahPenerima + " org)" : "") + "</td>" +
+        '<td><button class="btn btn-ghost" data-edit-zs="' + x.id + '">Edit</button></td></tr>').join("")
+        : '<tr><td colspan="7" style="color:var(--abu)">Belum ada penyaluran.</td></tr>';
+      mainEl().querySelectorAll("[data-edit-zs]").forEach((b) =>
+        b.addEventListener("click", () => modalEditSalur(b.dataset.editZs)));
+    }
+
+    renderTabelPenerimaan();
+    renderTabelSalur();
+
+    ["zf-f-jenis", "zf-f-kelompok", "zf-f-status"].forEach((id) =>
+      document.getElementById(id).addEventListener("change", renderTabelPenerimaan));
+
+    document.getElementById("zw-csv").addEventListener("click", () => {
+      const rows = [["Kode", "Tanggal", "Pemberi", "Kelompok", "Kelas", "Jenis", "Program", "Bentuk", "Nominal", "Metode", "Status"]];
+      cache.ziswaf.forEach((z) => rows.push([z.kode, z.tanggal, z.donorNama, z.kelompok, z.kelas, z.jenis, z.program, z.bentuk, z.jumlah, z.metode, z.status]));
+      const csv = rows.map((row) => row.map((c) => '"' + String(c == null ? "" : c).replace(/"/g, '""') + '"').join(";")).join("\n");
+      const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "laporan-ziswaf-saling-bantu.csv";
+      a.click();
+      S.toast("CSV ZISWAF diunduh.", "sukses");
+    });
+
+    document.getElementById("zw-tambah").addEventListener("click", () => modalCatatZiswaf());
+
+    document.getElementById("form-zw-salur").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const jenis = document.getElementById("zs-jenis").value;
+      const nominal = Number(document.getElementById("zs-nominal").value) || 0;
+      const catatan = document.getElementById("zs-catatan").value.trim();
+      if (!catatan) { S.toast("Catatan/bukti penyaluran wajib diisi.", "gagal"); return; }
+      if (nominal <= 0) { S.toast("Nominal penyaluran harus lebih dari 0.", "gagal"); return; }
+      try {
+        await S.store.createZiswafSalur({
+          jenis, mustahik: document.getElementById("zs-mustahik").value,
+          penerima: document.getElementById("zs-penerima").value.trim(),
+          jumlahPenerima: Number(document.getElementById("zs-jumlah").value) || 0,
+          bentuk: document.getElementById("zs-bentuk").value.trim() || "Uang",
+          nominal, catatan
+        });
+        S.toast("Penyaluran ZISWAF tercatat.", "sukses");
+        vZiswaf();
+      } catch (e2) { S.toast(e2.message, "gagal"); }
+    });
+
+    function kpi(ic, warna, nilai, label) {
+      return '<div class="kpi"><span class="kpi-ic" style="background:' + warna + ';display:grid">' + S.icon(ic, 18) + "</span><b>" + nilai + "</b><span>" + label + "</span></div>";
+    }
+  }
+
+  function modalCatatZiswaf() {
+    S.modal({
+      judul: "Catat ZISWAF (Tunai / Offline)",
+      lebar: 620,
+      isi:
+        '<div class="form-row">' +
+        '<div class="field"><label>Jenis ZISWAF</label><select id="zt-jenis">' +
+        Object.entries(S.ZISWAF_JENIS).map(([k, m]) => '<option value="' + k + '">' + m.label + "</option>").join("") + "</select></div>" +
+        '<div class="field"><label>Program / Tujuan</label><input type="text" id="zt-program" list="zt-list"/><datalist id="zt-list">' +
+        (S.ZISWAF_PROGRAM.zakat || []).map((p) => '<option value="' + S.esc(p) + '"></option>').join("") + "</datalist></div>" +
+        '<div class="field"><label>Kelompok Pemberi</label><select id="zt-kelompok">' +
+        Object.entries(S.ZISWAF_KELOMPOK).map(([k, m]) => '<option value="' + k + '">' + m.label + "</option>").join("") + "</select></div>" +
+        '<div class="field"><label>Kelas (khusus siswa)</label><input type="text" id="zt-kelas"/></div>' +
+        '<div class="field"><label>Nama Pemberi</label><input type="text" id="zt-nama" required/></div>' +
+        '<div class="field"><label>Bentuk</label><select id="zt-bentuk"><option value="uang">Uang</option><option value="barang">Barang</option></select></div>' +
+        '<div class="field"><label>Nominal (Rp)</label><input type="number" id="zt-jumlah" min="0" step="1000" value="0"/></div>' +
+        '<div class="field" style="grid-column:1/-1"><label>Rincian Barang (bila barang)</label><input type="text" id="zt-barang"/></div>' +
+        '<div class="field"><label>Metode</label><select id="zt-metode">' +
+        Object.entries(S.ZISWAF_METODE).map(([k, l]) => '<option value="' + k + '">' + l + "</option>").join("") + "</select></div>" +
+        '<div class="field"><label>Status</label><select id="zt-status"><option value="terverifikasi">Terverifikasi (langsung)</option><option value="menunggu">Menunggu Verifikasi</option></select></div>' +
+        '<div class="field" style="grid-column:1/-1"><label style="display:flex;gap:8px;align-items:center;font-weight:600"><input type="checkbox" id="zt-anonim" style="width:auto"/> Tampilkan sebagai "Hamba Allah" (anonim)</label></div>' +
+        '<div class="field" style="grid-column:1/-1"><label>Catatan</label><textarea id="zt-catatan" rows="2"></textarea></div>' +
+        "</div>" +
+        '<p style="font-size:12.5px;color:var(--abu);margin-top:8px">Gunakan form ini untuk setoran tunai / kotak amal yang langsung diterima pengelola. Pilih "Terverifikasi" agar saldo dana langsung bertambah.</p>',
+      footer: '<button class="btn btn-ghost" onclick="SB.modalClose()">Batal</button><button class="btn btn-primary" id="zt-simpan">Catat ZISWAF</button>'
+    });
+    const perbaruiProgram = (jenis) => {
+      document.getElementById("zt-list").innerHTML = (S.ZISWAF_PROGRAM[jenis] || []).map((p) => '<option value="' + S.esc(p) + '"></option>').join("");
+    };
+    perbaruiProgram("zakat");
+    document.getElementById("zt-jenis").addEventListener("change", (e) => perbaruiProgram(e.target.value));
+    document.getElementById("zt-simpan").addEventListener("click", async () => {
+      const bentuk = document.getElementById("zt-bentuk").value;
+      const data = {
+        jenis: document.getElementById("zt-jenis").value,
+        program: document.getElementById("zt-program").value.trim(),
+        kelompok: document.getElementById("zt-kelompok").value,
+        kelas: document.getElementById("zt-kelas").value.trim(),
+        donorNama: document.getElementById("zt-nama").value.trim(),
+        anonim: document.getElementById("zt-anonim").checked,
+        bentuk, jumlah: Number(document.getElementById("zt-jumlah").value) || 0,
+        barangDetail: document.getElementById("zt-barang").value.trim(),
+        metode: document.getElementById("zt-metode").value,
+        catatan: document.getElementById("zt-catatan").value.trim()
+      };
+      if (!data.donorNama) { S.toast("Nama pemberi wajib diisi.", "gagal"); return; }
+      if (bentuk === "uang" && data.jumlah <= 0) { S.toast("Nominal harus lebih dari 0.", "gagal"); return; }
+      if (bentuk === "barang" && data.barangDetail.length < 5) { S.toast("Tuliskan rincian barang.", "gagal"); return; }
+      try {
+        const z = await S.store.createZiswaf(data);
+        const statusBaru = document.getElementById("zt-status").value;
+        if (statusBaru && statusBaru !== "menunggu") await S.store.updateZiswafAdmin(z.id, { status: statusBaru });
+        S.modalClose();
+        S.toast("ZISWAF tercatat (" + z.kode + ").", "sukses");
+        vZiswaf();
+      } catch (e) { S.toast(e.message, "gagal"); }
+    });
+  }
+
+  function modalEditZiswaf(id) {
+    const z = cache.ziswaf.find((x) => x.id === id);
+    if (!z) return;
+    const jenisOpts = Object.entries(S.ZISWAF_JENIS).map(([k, m]) => '<option value="' + k + '"' + (z.jenis === k ? " selected" : "") + ">" + m.label + "</option>").join("");
+    const kelOpts = Object.entries(S.ZISWAF_KELOMPOK).map(([k, m]) => '<option value="' + k + '"' + (z.kelompok === k ? " selected" : "") + ">" + m.label + "</option>").join("");
+    const metodeOpts = Object.entries(S.ZISWAF_METODE).map(([k, l]) => '<option value="' + k + '"' + (z.metode === k ? " selected" : "") + ">" + l + "</option>").join("");
+    const statusOpts = Object.entries(S.ZISWAF_STATUS).map(([k, m]) => '<option value="' + k + '"' + (z.status === k ? " selected" : "") + ">" + m.label + "</option>").join("");
+    const progOpts = (S.ZISWAF_PROGRAM[z.jenis] || []);
+    S.modal({
+      judul: "Edit ZISWAF — " + z.kode,
+      lebar: 620,
+      isi:
+        '<div class="form-row">' +
+        '<div class="field"><label>Jenis ZISWAF</label><select id="ed-zw-jenis">' + jenisOpts + "</select></div>" +
+        '<div class="field"><label>Program / Tujuan</label><input type="text" id="ed-zw-program" value="' + S.esc(z.program) + '" list="ed-zw-list"/><datalist id="ed-zw-list">' +
+        progOpts.map((p) => '<option value="' + S.esc(p) + '"></option>').join("") + "</datalist></div>" +
+        '<div class="field"><label>Kelompok Pemberi</label><select id="ed-zw-kelompok">' + kelOpts + "</select></div>" +
+        '<div class="field"><label>Kelas (khusus siswa)</label><input type="text" id="ed-zw-kelas" value="' + S.esc(z.kelas || "") + '"/></div>' +
+        '<div class="field"><label>Nama Pemberi</label><input type="text" id="ed-zw-nama" value="' + S.esc(z.donorNama) + '" required/></div>' +
+        '<div class="field" style="grid-column:1/-1"><label style="display:flex;gap:8px;align-items:center;font-weight:600"><input type="checkbox" id="ed-zw-anonim"' + (z.anonim ? " checked" : "") + ' style="width:auto"/> Tampilkan sebagai "Hamba Allah" (anonim)</label></div>' +
+        '<div class="field"><label>Bentuk</label><select id="ed-zw-bentuk"><option value="uang"' + (z.bentuk === "uang" ? " selected" : "") + '>Uang</option><option value="barang"' + (z.bentuk === "barang" ? " selected" : "") + '>Barang</option></select></div>' +
+        '<div class="field"><label>Nominal (Rp)</label><input type="number" id="ed-zw-jumlah" min="0" step="1000" value="' + Number(z.jumlah || 0) + '"/></div>' +
+        '<div class="field" style="grid-column:1/-1"><label>Rincian Barang</label><input type="text" id="ed-zw-barang" value="' + S.esc(z.barangDetail || "") + '"/></div>' +
+        '<div class="field"><label>Metode</label><select id="ed-zw-metode">' + metodeOpts + "</select></div>" +
+        '<div class="field"><label>Status</label><select id="ed-zw-status">' + statusOpts + "</select></div>" +
+        '<div class="field" style="grid-column:1/-1"><label>Catatan</label><textarea id="ed-zw-catatan" rows="2">' + S.esc(z.catatan || "") + "</textarea></div>" +
+        "</div>" +
+        '<p style="font-size:12.5px;color:var(--abu);margin-top:8px">Perubahan status ikut mengubah saldo dana ZISWAF dan tercatat di jejak audit.</p>',
+      footer: '<button class="btn btn-ghost" onclick="SB.modalClose()">Batal</button><button class="btn btn-primary" id="ed-zw-simpan">Simpan Perubahan</button>'
+    });
+    document.getElementById("ed-zw-jenis").addEventListener("change", (e) => {
+      document.getElementById("ed-zw-list").innerHTML = (S.ZISWAF_PROGRAM[e.target.value] || []).map((p) => '<option value="' + S.esc(p) + '"></option>').join("");
+    });
+    document.getElementById("ed-zw-simpan").addEventListener("click", async () => {
+      const patch = {
+        jenis: document.getElementById("ed-zw-jenis").value,
+        program: document.getElementById("ed-zw-program").value.trim(),
+        kelompok: document.getElementById("ed-zw-kelompok").value,
+        kelas: document.getElementById("ed-zw-kelas").value.trim(),
+        donorNama: document.getElementById("ed-zw-nama").value.trim() || "Hamba Allah",
+        anonim: document.getElementById("ed-zw-anonim").checked,
+        bentuk: document.getElementById("ed-zw-bentuk").value,
+        jumlah: Number(document.getElementById("ed-zw-jumlah").value) || 0,
+        barangDetail: document.getElementById("ed-zw-barang").value.trim(),
+        metode: document.getElementById("ed-zw-metode").value,
+        status: document.getElementById("ed-zw-status").value,
+        catatan: document.getElementById("ed-zw-catatan").value.trim()
+      };
+      if (!patch.donorNama) { S.toast("Nama pemberi wajib diisi.", "gagal"); return; }
+      try {
+        await S.store.updateZiswafAdmin(z.id, patch);
+        S.modalClose(); S.toast("Data ZISWAF diperbarui.", "sukses"); vZiswaf();
+      } catch (e) { S.toast(e.message, "gagal"); }
+    });
+  }
+
+  function modalEditSalur(id) {
+    const x = cache.ziswafSalur.find((q) => q.id === id);
+    if (!x) return;
+    const jenisOpts = Object.entries(S.ZISWAF_JENIS).map(([k, m]) => '<option value="' + k + '"' + (x.jenis === k ? " selected" : "") + ">" + m.label + "</option>").join("");
+    const musOpts = Object.entries(S.ZISWAF_MUSTAHIK).map(([k, m]) => '<option value="' + k + '"' + (x.mustahik === k ? " selected" : "") + ">" + S.esc(m.label) + "</option>").join("");
+    S.modal({
+      judul: "Edit Penyaluran — " + x.kode,
+      lebar: 600,
+      isi:
+        '<div class="form-row">' +
+        '<div class="field"><label>Jenis Dana</label><select id="es-z-jenis">' + jenisOpts + "</select></div>" +
+        '<div class="field"><label>Mustahik / Golongan</label><select id="es-z-mustahik">' + musOpts + "</select></div>" +
+        '<div class="field" style="grid-column:1/-1"><label>Penerima (golongan/instansi)</label><input type="text" id="es-z-penerima" value="' + S.esc(x.penerima || "") + '"/></div>' +
+        '<div class="field"><label>Jumlah Orang</label><input type="number" id="es-z-jumlah" min="0" value="' + Number(x.jumlahPenerima || 0) + '"/></div>' +
+        '<div class="field"><label>Nominal (Rp)</label><input type="number" id="es-z-nominal" min="0" step="10000" value="' + Number(x.nominal || 0) + '"/></div>' +
+        '<div class="field" style="grid-column:1/-1"><label>Bentuk Penyaluran</label><input type="text" id="es-z-bentuk" value="' + S.esc(x.bentuk || "") + '"/></div>' +
+        '<div class="field" style="grid-column:1/-1"><label>Catatan / Bukti</label><textarea id="es-z-catatan" rows="2">' + S.esc(x.catatan || "") + "</textarea></div>" +
+        "</div>" +
+        '<p style="font-size:12.5px;color:var(--abu);margin-top:8px">Pastikan nominal tidak melebihi saldo dana jenis terkait. Perubahan tercatat di jejak audit.</p>',
+      footer: '<button class="btn btn-ghost" onclick="SB.modalClose()">Batal</button><button class="btn btn-primary" id="es-z-simpan">Simpan Perubahan</button>'
+    });
+    document.getElementById("es-z-simpan").addEventListener("click", async () => {
+      try {
+        await S.store.updateZiswafSalurAdmin(x.id, {
+          jenis: document.getElementById("es-z-jenis").value,
+          mustahik: document.getElementById("es-z-mustahik").value,
+          penerima: document.getElementById("es-z-penerima").value.trim(),
+          jumlahPenerima: Number(document.getElementById("es-z-jumlah").value) || 0,
+          nominal: Number(document.getElementById("es-z-nominal").value) || 0,
+          bentuk: document.getElementById("es-z-bentuk").value.trim(),
+          catatan: document.getElementById("es-z-catatan").value.trim()
+        });
+        S.modalClose(); S.toast("Penyaluran diperbarui.", "sukses"); vZiswaf();
+      } catch (e) { S.toast(e.message, "gagal"); }
+    });
+  }
+
   /* ================= KONTEN ================= */
   async function vKonten() {
     const stories = await S.store.listStories({ publikOnly: false });
@@ -977,6 +1308,7 @@
       else if (id === "pengguna") await vPengguna();
       else if (id === "pengajuan") await vPengajuan();
       else if (id === "donasi") await vDonasi();
+      else if (id === "ziswaf") await vZiswaf();
       else if (id === "konten") await vKonten();
       else if (id === "isi") await vIsiWebsite();
       else if (id === "laporan") await vLaporan();

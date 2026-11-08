@@ -130,5 +130,19 @@
     } catch (e) {
       document.getElementById("story-grid").innerHTML = S.kosong("Gagal memuat cerita.", "message");
     }
+
+    /* ZISWAF: 4 kartu jenis + angka terkumpul nyata */
+    const zwGrid = document.getElementById("ziswaf-jenis");
+    if (zwGrid) {
+      let stats = null;
+      try { stats = await S.store.ziswafStats(); } catch (e) { /* tampil tanpa angka */ }
+      zwGrid.innerHTML = Object.entries(S.ZISWAF_JENIS).map(([k, m]) => {
+        const x = (stats && stats.perJenis[k]) || { terkumpul: 0 };
+        return '<a class="cat-card" href="ziswaf.html">' +
+          '<span class="cat-ic k-' + m.warna + '">' + S.icon(m.icon, 21) + "</span>" +
+          "<div><h3>" + S.esc(m.label) + "</h3><p>" + S.esc(m.ket) + "</p>" +
+          '<span class="sub-n">Terkumpul: <b>' + S.rupiah(x.terkumpul) + "</b> →</span></div></a>";
+      }).join("");
+    }
   });
 })();

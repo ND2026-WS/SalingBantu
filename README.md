@@ -59,7 +59,10 @@ Cocok untuk demo ke klien / belajar:
 
 ```
 saling-bantu/
-├── index.html              Beranda (7 bagian sesuai spesifikasi)
+├── index.html              Beranda (8 bagian: hero, statistik, bantuan,
+│                           kategori, cerita, ZISWAF, CTA)
+├── ziswaf.html             Modul ZISWAF publik (rekap, papan kebaikan,
+│                           penyaluran, form salurkan ZISWAF)
 ├── masuk.html              Login
 ├── daftar.html             Registrasi (penerima / donatur / volunteer)
 ├── cari-bantuan.html       Cari & filter pengajuan (kategori + lokasi)
@@ -68,19 +71,22 @@ saling-bantu/
 ├── cerita-kebaikan.html    Cerita kebaikan + kirim cerita
 ├── transparansi.html       Laporan dana publik + privasi penerima
 ├── tentang.html            Tentang kami (5 tujuan, 5 nilai)
-├── dashboard.html          Dashboard pengguna (8 menu)
-├── admin.html              Panel admin (9 menu: Statistik, Realtime,
-│                           Pengguna, Pengajuan, Donasi, Konten, Isi Website,
-│                           Laporan, Pengaturan)
+├── dashboard.html          Dashboard pengguna (9 menu, termasuk ZISWAF Saya)
+├── admin.html              Panel admin (10 menu: Statistik, Realtime,
+│                           Pengguna, Pengajuan, Donasi, Modul ZISWAF,
+│                           Konten, Isi Website, Laporan, Pengaturan)
 ├── css/style.css           Design system (hijau, biru, putih, oranye)
 ├── js/config.js            Kredensial Supabase (isi di sini)
-├── js/core.js              Util, ikon SVG, metadata (kategori/status/jenis)
+├── js/core.js              Util, ikon SVG, metadata (kategori/status/jenis/
+│                           ZISWAF: jenis, kelompok, mustahik, program)
 ├── js/konten.js            CMS "Isi Website" (definisi & penerapan teks)
 ├── js/store.js             Lapisan data: DemoBackend + SupabaseBackend
 ├── js/main.js              Header, footer, auth state, notifikasi lonceng
-├── js/beranda.js …         Logika per halaman
-├── sql/supabase_schema.sql Skema database lengkap (jalankan di SQL Editor)
-└── sql/update_cms_realtime.sql  Pembaruan utk database lama (CMS + realtime)
+├── js/beranda.js …         Logika per halaman (termasuk ziswaf.js)
+├── sql/supabase_schema.sql Skema database lengkap (BAGIAN 1–20, jalankan
+│                           di SQL Editor)
+├── sql/update_cms_realtime.sql   Pembaruan utk database lama (CMS + realtime)
+└── sql/update_ziswaf.sql         Pembaruan utk database lama (modul ZISWAF)
 ```
 
 ## 4. Alur Utama Aplikasi
@@ -196,4 +202,62 @@ donasi, kuitansi, notifikasi, dashboard, transparansi) pada 8 November 2026:
    `pengelola`, fungsi `is_pengelola()`, dan mendaftarkan tabel utama ke
    publication `supabase_realtime`. Database baru cukup menjalankan
    `sql/supabase_schema.sql` (bagian 19 sudah termasuk).
+
+---
+
+## 9. Modul ZISWAF (v1.4)
+
+Saling Bantu kini juga menjadi **sistem pengelolaan ZISWAF yayasan/sekolah Islam
+terpadu** — Zakat, Infaq, Sedekah, dan Wakaf — dari keluarga besar sekolah
+(**siswa**, **guru & tenaga kependidikan**, **orang tua santri**) serta
+**masyarakat umum**, beserta penyalurannya kepada penerima manfaat.
+
+### Halaman publik `ziswaf.html`
+- Penjelasan 4 jenis dana (Zakat, Infaq, Sedekah, Wakaf) + rekap transparansi:
+  terkumpul, tersalur, saldo per jenis, dan progres penyaluran.
+- **Papan Kebaikan**: penerimaan terverifikasi terbaru (pemberi anonim tampil
+  sebagai "Hamba Allah").
+- **Penyaluran terbaru**: mustahik/golongan penerima, bentuk, dan nominal.
+- **Form salurkan ZISWAF**: jenis, program (saran otomatis per jenis), kelompok
+  pemberi (siswa + kelas / guru & tendik / orang tua santri / umum), bentuk
+  uang/barang, metode (transfer/tunai/QRIS), anonim — lalu kuitansi kode `ZW-…`.
+- Rekening resmi yayasan diambil dari CMS (menu *Isi Website* → grup
+  *Rekening Donasi*); teks-teks halaman ZISWAF juga bisa diedit lewat CMS
+  (grup *Modul ZISWAF*).
+
+### Panel admin — menu "Modul ZISWAF"
+- KPI: dana terverifikasi, tersalurkan, saldo, jumlah menunggu verifikasi —
+  plus chip saldo per jenis dana.
+- **Penerimaan**: tabel lengkap dengan filter jenis/kelompok/status, tombol
+  *Verifikasi* / *Tolak* (dengan alasan), tombol **Edit**, dan tombol
+  **Catat ZISWAF (Tunai/Offline)** untuk setoran kotak amal yang langsung
+  diterima pengelola. Ekspor **CSV** tersedia.
+- **Penyaluran**: form pencatatan penyaluran (jenis dana, mustahik dari 8 asnaf
+  + beasiswa/operasional/pembangunan/kemanusiaan, penerima golongan, jumlah
+  orang, bentuk, nominal, bukti) dengan validasi **saldo** — penyaluran tidak
+  boleh melebihi dana terverifikasi per jenis. Tiap baris punya tombol *Edit*.
+- **Rekap**: tabel per jenis dana dan per kelompok pemberi.
+
+### Dashboard pengguna — menu "ZISWAF Saya"
+Riwayat ZISWAF pribadi (kode, jenis & program, nominal/rincian, metode, status)
+beserta total yang telah terverifikasi.
+
+### Keamanan & audit
+- Kode otomatis: penerimaan `ZW-YYYY-####`, penyaluran `ZS-YYYY-####`.
+- Tabel `ziswaf_transactions` & `ziswaf_distributions` dengan RLS: pemberi hanya
+  melihat catatannya sendiri, verifikasi/edit/penyaluran hanya untuk
+  admin/pengelola (`is_pengelola()`); publik membaca lewat view tersanitasi
+  `v_ziswaf_publik` & `v_ziswaf_salur_publik`.
+- Statistik publik aman lewat fungsi `ziswaf_stats()` (security definer).
+- Semua pembuatan/perubahan status tercatat di `audit_logs` + notifikasi ke
+  admin dan pemberi (trigger database).
+- Kedua tabel terdaftar di publication `supabase_realtime` (muncul di dashboard
+  Realtime admin).
+
+### Database
+- Database baru: cukup `sql/supabase_schema.sql` (**BAGIAN 20** sudah termasuk).
+- Database lama: jalankan **`sql/update_ziswaf.sql`** (Supabase → SQL Editor →
+  Run). File ini idempotent dan juga memastikan role `pengelola` +
+  `is_pengelola()` tersedia.
+
 

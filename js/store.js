@@ -73,14 +73,39 @@ window.SB = window.SB || {};
       audit: [],
       lapor: [],
       konten: {},
-      counters: { req: 6, kuitansi: 4 }
+      ziswaf: [
+        { id: "zw-1", kode: "ZW-2026-0001", jenis: "zakat", program: "Zakat Penghasilan", kelompok: "guru", kelas: "", userId: "u-budi", donorNama: "Budi Santoso", anonim: false, bentuk: "uang", jumlah: 750000, barangDetail: "", metode: "transfer_bank", status: "terverifikasi", catatan: "Zakat penghasilan bulan Ramadan.", tanggal: "2026-03-18T02:00:00.000Z" },
+        { id: "zw-2", kode: "ZW-2026-0002", jenis: "zakat", program: "Zakat Maal", kelompok: "siswa", kelas: "8A", userId: null, donorNama: "Rizky Ramadhan", anonim: false, bentuk: "uang", jumlah: 50000, barangDetail: "", metode: "tunai", status: "terverifikasi", catatan: "Dari tabungan jajan sebulan.", tanggal: "2026-03-20T02:00:00.000Z" },
+        { id: "zw-3", kode: "ZW-2026-0003", jenis: "infaq", program: "Kotak Amal", kelompok: "ortu_santri", kelas: "7B", userId: null, donorNama: "Ibu Fatimah Zahra", anonim: false, bentuk: "uang", jumlah: 200000, barangDetail: "", metode: "transfer_bank", status: "terverifikasi", catatan: "Infaq rutin tiap Jumat.", tanggal: "2026-03-27T02:00:00.000Z" },
+        { id: "zw-4", kode: "ZW-2026-0004", jenis: "sedekah", program: "Beasiswa Yatim", kelompok: "umum", kelas: "", userId: null, donorNama: "Hamba Allah", anonim: true, bentuk: "uang", jumlah: 500000, barangDetail: "", metode: "qris", status: "terverifikasi", catatan: "Untuk adik-adik yatim.", tanggal: "2026-04-02T02:00:00.000Z" },
+        { id: "zw-5", kode: "ZW-2026-0005", jenis: "wakaf", program: "Wakaf Pembangunan", kelompok: "ortu_santri", kelas: "9A", userId: null, donorNama: "Keluarga H. Mahmud", anonim: false, bentuk: "uang", jumlah: 1000000, barangDetail: "", metode: "transfer_bank", status: "terverifikasi", catatan: "Wakaf tahap pembangunan laboratorium.", tanggal: "2026-04-10T02:00:00.000Z" },
+        { id: "zw-6", kode: "ZW-2026-0006", jenis: "sedekah", program: "Santunan Dhuafa", kelompok: "guru", kelas: "", userId: "u-budi", donorNama: "Budi Santoso", anonim: false, bentuk: "uang", jumlah: 250000, barangDetail: "", metode: "qris", status: "terverifikasi", catatan: "", tanggal: "2026-04-15T02:00:00.000Z" },
+        { id: "zw-7", kode: "ZW-2026-0007", jenis: "zakat", program: "Zakat Fitrah (Uang)", kelompok: "siswa", kelas: "9C", userId: null, donorNama: "Aisyah Nur Fadilah", anonim: false, bentuk: "uang", jumlah: 35000, barangDetail: "", metode: "tunai", status: "menunggu", catatan: "Disetor lewat bendahara kelas.", tanggal: "2026-11-05T02:00:00.000Z" },
+        { id: "zw-8", kode: "ZW-2026-0008", jenis: "infaq", program: "Infaq Masjid Sekolah", kelompok: "umum", kelas: "", userId: null, donorNama: "Pak Hendra Wijaya", anonim: false, bentuk: "barang", jumlah: 0, barangDetail: "2 lusin buku ibadah & 1 karpet sajadah bekas layak", metode: "tunai", status: "menunggu", catatan: "Diambil ke rumah yayasan.", tanggal: "2026-11-06T02:00:00.000Z" }
+      ],
+      ziswafSalur: [
+        { id: "zs-1", kode: "ZS-2026-0001", jenis: "zakat", mustahik: "miskin", penerima: "20 KK warga sekitar sekolah", jumlahPenerima: 20, bentuk: "Sembako & bahan makanan pokok", nominal: 500000, catatan: "Disalurkan menjelang Ramadan bersama guru & siswa OSIS.", tanggal: "2026-03-22T02:00:00.000Z" },
+        { id: "zs-2", kode: "ZS-2026-0002", jenis: "sedekah", mustahik: "beasiswa", penerima: "12 siswa yatim & dhuafa", jumlahPenerima: 12, bentuk: "Paket alat tulis + seragam", nominal: 350000, catatan: "Penyaluran awal semester.", tanggal: "2026-04-05T02:00:00.000Z" },
+        { id: "zs-3", kode: "ZS-2026-0003", jenis: "infaq", mustahik: "operasional", penerima: "Masjid sekolah", jumlahPenerima: 1, bentuk: "Uang operasional (listrik, air, kebersihan)", nominal: 150000, catatan: "Tagihan bulan berjalan.", tanggal: "2026-04-12T02:00:00.000Z" }
+      ],
+      counters: { req: 6, kuitansi: 4, ziswaf: 8, ziswafSalur: 3 }
     };
   }
 
   function loadDb() {
     try {
       const raw = localStorage.getItem(LS_KEY);
-      if (raw) return JSON.parse(raw);
+      if (raw) {
+        const db = JSON.parse(raw);
+        /* migrasi: data demo lama belum punya modul ZISWAF */
+        if (!db || typeof db !== "object") return seed();
+        if (!Array.isArray(db.ziswaf)) db.ziswaf = seed().ziswaf;
+        if (!Array.isArray(db.ziswafSalur)) db.ziswafSalur = seed().ziswafSalur;
+        db.counters = Object.assign({ req: 0, kuitansi: 0, ziswaf: (db.ziswaf || []).length, ziswafSalur: (db.ziswafSalur || []).length }, db.counters || {});
+        if (db.counters.ziswaf == null) db.counters.ziswaf = db.ziswaf.length;
+        if (db.counters.ziswafSalur == null) db.counters.ziswafSalur = db.ziswafSalur.length;
+        return db;
+      }
     } catch (e) { /* abaikan */ }
     const db = seed();
     saveDb(db);
@@ -357,6 +382,126 @@ window.SB = window.SB || {};
           });
       },
 
+      /* ---------- ZISWAF (Zakat, Infaq, Sedekah, Wakaf) ---------- */
+      async listZiswaf(f) {
+        await sleep(80);
+        f = f || {};
+        let arr = db.ziswaf.slice();
+        if (f.publikOnly) arr = arr.filter((z) => z.status === "terverifikasi");
+        if (f.donorId) arr = arr.filter((z) => z.userId === f.donorId);
+        if (f.jenis) arr = arr.filter((z) => z.jenis === f.jenis);
+        if (f.kelompok) arr = arr.filter((z) => z.kelompok === f.kelompok);
+        if (f.status) arr = arr.filter((z) => z.status === f.status);
+        return arr.sort((a, b) => (a.tanggal < b.tanggal ? 1 : -1));
+      },
+      async createZiswaf(data) {
+        await sleep(220);
+        const u = me(); if (!u) throw new Error("Masuk dulu untuk mencatat ZISWAF (bisa daftar gratis).");
+        if (!S.ZISWAF_JENIS[data.jenis]) throw new Error("Jenis ZISWAF tidak dikenal.");
+        db.counters.ziswaf += 1;
+        const z = {
+          id: uid(), kode: "ZW-" + new Date().getFullYear() + "-" + String(db.counters.ziswaf).padStart(4, "0"),
+          jenis: data.jenis, program: data.program || "",
+          kelompok: S.ZISWAF_KELOMPOK[data.kelompok] ? data.kelompok : "umum",
+          kelas: data.kelas || "", userId: u.id,
+          donorNama: data.anonim ? "Hamba Allah" : (data.donorNama || u.nama),
+          anonim: !!data.anonim, bentuk: data.bentuk === "barang" ? "barang" : "uang",
+          jumlah: Number(data.jumlah) || 0, barangDetail: data.barangDetail || "",
+          metode: data.metode || "transfer_bank", status: "menunggu",
+          catatan: data.catatan || "", tanggal: now()
+        };
+        db.ziswaf.unshift(z);
+        db.audit.unshift({ id: uid(), aktor: u.nama, aksi: "create", entitas: "ziswaf_transactions", entitasId: z.id, detail: { kode: z.kode, jenis: z.jenis, jumlah: z.jumlah }, tanggal: now() });
+        notifyAdmins("donasi_tercatat", "ZISWAF baru menunggu verifikasi", z.kode + " — " + S.ZISWAF_JENIS[z.jenis].label + " dari " + z.donorNama + (z.kelas ? " (" + z.kelas + ")" : "") + ".", "admin.html#ziswaf");
+        saveDb(db);
+        return z;
+      },
+      async updateZiswafAdmin(id, patch) {
+        const u = me(); if (!u || !["admin", "pengelola"].includes(u.peran)) throw new Error("Hanya admin/pengelola.");
+        const z = db.ziswaf.find((x) => x.id === id); if (!z) throw new Error("Data ZISWAF tidak ditemukan.");
+        if (patch.jenis != null && S.ZISWAF_JENIS[patch.jenis]) z.jenis = patch.jenis;
+        if (patch.program != null) z.program = patch.program;
+        if (patch.kelompok != null && S.ZISWAF_KELOMPOK[patch.kelompok]) z.kelompok = patch.kelompok;
+        if (patch.kelas != null) z.kelas = patch.kelas;
+        if (patch.donorNama != null) z.donorNama = patch.donorNama;
+        if (patch.anonim != null) { z.anonim = !!patch.anonim; if (z.anonim) z.donorNama = "Hamba Allah"; }
+        if (patch.bentuk != null) z.bentuk = patch.bentuk === "barang" ? "barang" : "uang";
+        if (patch.jumlah != null && !isNaN(Number(patch.jumlah)) && Number(patch.jumlah) >= 0) z.jumlah = Number(patch.jumlah);
+        if (patch.barangDetail != null) z.barangDetail = patch.barangDetail;
+        if (patch.metode != null) z.metode = patch.metode;
+        if (patch.catatan != null) z.catatan = patch.catatan;
+        if (patch.status != null && S.ZISWAF_STATUS[patch.status]) z.status = patch.status;
+        db.audit.unshift({ id: uid(), aktor: u.nama, aksi: "update", entitas: "ziswaf_transactions", entitasId: id, detail: { kode: z.kode, status: z.status }, tanggal: now() });
+        saveDb(db); return z;
+      },
+      async verifyZiswaf(id, ok, catatan) {
+        const u = me(); if (!u || !["admin", "pengelola"].includes(u.peran)) throw new Error("Hanya admin/pengelola.");
+        const z = db.ziswaf.find((x) => x.id === id); if (!z) throw new Error("Data ZISWAF tidak ditemukan.");
+        z.status = ok ? "terverifikasi" : "ditolak";
+        db.audit.unshift({ id: uid(), aktor: u.nama, aksi: "update_status", entitas: "ziswaf_transactions", entitasId: id, detail: { kode: z.kode, ke: z.status }, tanggal: now() });
+        if (z.userId) notify(z.userId, "donasi_tercatat", ok ? "ZISWAF Anda terverifikasi" : "ZISWAF ditolak",
+          ok ? "Terima kasih! " + z.kode + " (" + S.ZISWAF_JENIS[z.jenis].label + ") telah terverifikasi dan siap disalurkan." :
+          z.kode + " ditolak. " + (catatan || "Hubungi pengelola ZISWAF untuk info lebih lanjut."),
+          "dashboard.html#ziswaf");
+        saveDb(db); return z;
+      },
+      async listZiswafSalur() {
+        await sleep(70);
+        return db.ziswafSalur.slice().sort((a, b) => (a.tanggal < b.tanggal ? 1 : -1));
+      },
+      async createZiswafSalur(data) {
+        const u = me(); if (!u || !["admin", "pengelola"].includes(u.peran)) throw new Error("Hanya admin/pengelola.");
+        if (!S.ZISWAF_JENIS[data.jenis]) throw new Error("Jenis dana tidak dikenal.");
+        const nominal = Number(data.nominal) || 0;
+        const st = await api.ziswafStats();
+        const saldo = (st.perJenis[data.jenis] || { saldo: 0 }).saldo;
+        if (nominal > saldo) throw new Error("Saldo dana " + S.ZISWAF_JENIS[data.jenis].label + " tidak cukup (saldo: " + S.rupiah(saldo) + ").");
+        db.counters.ziswafSalur += 1;
+        const x = {
+          id: uid(), kode: "ZS-" + new Date().getFullYear() + "-" + String(db.counters.ziswafSalur).padStart(4, "0"),
+          jenis: data.jenis, mustahik: data.mustahik || "kemanusiaan",
+          penerima: data.penerima || "", jumlahPenerima: Number(data.jumlahPenerima) || 0,
+          bentuk: data.bentuk || "Uang", nominal, catatan: data.catatan || "",
+          oleh: u.nama, tanggal: now()
+        };
+        db.ziswafSalur.unshift(x);
+        db.audit.unshift({ id: uid(), aktor: u.nama, aksi: "create", entitas: "ziswaf_distributions", entitasId: x.id, detail: { kode: x.kode, mustahik: x.mustahik, nominal: x.nominal }, tanggal: now() });
+        saveDb(db); return x;
+      },
+      async updateZiswafSalurAdmin(id, patch) {
+        const u = me(); if (!u || !["admin", "pengelola"].includes(u.peran)) throw new Error("Hanya admin/pengelola.");
+        const x = db.ziswafSalur.find((q) => q.id === id); if (!x) throw new Error("Penyaluran tidak ditemukan.");
+        if (patch.jenis != null && S.ZISWAF_JENIS[patch.jenis]) x.jenis = patch.jenis;
+        if (patch.mustahik != null && S.ZISWAF_MUSTAHIK[patch.mustahik]) x.mustahik = patch.mustahik;
+        if (patch.penerima != null) x.penerima = patch.penerima;
+        if (patch.jumlahPenerima != null) x.jumlahPenerima = Number(patch.jumlahPenerima) || 0;
+        if (patch.bentuk != null) x.bentuk = patch.bentuk;
+        if (patch.nominal != null && !isNaN(Number(patch.nominal)) && Number(patch.nominal) >= 0) x.nominal = Number(patch.nominal);
+        if (patch.catatan != null) x.catatan = patch.catatan;
+        db.audit.unshift({ id: uid(), aktor: u.nama, aksi: "update", entitas: "ziswaf_distributions", entitasId: id, detail: { kode: x.kode, nominal: x.nominal }, tanggal: now() });
+        saveDb(db); return x;
+      },
+      async ziswafStats() {
+        const terverifikasi = db.ziswaf.filter((z) => z.status === "terverifikasi");
+        const perJenis = {};
+        Object.keys(S.ZISWAF_JENIS).forEach((j) => {
+          const terkumpul = terverifikasi.filter((z) => z.jenis === j).reduce((a, b) => a + (Number(b.jumlah) || 0), 0);
+          const tersalur = db.ziswafSalur.filter((x) => x.jenis === j).reduce((a, b) => a + (Number(b.nominal) || 0), 0);
+          perJenis[j] = { terkumpul, tersalur, saldo: terkumpul - tersalur, jumlah: terverifikasi.filter((z) => z.jenis === j).length };
+        });
+        const perKelompok = {};
+        Object.keys(S.ZISWAF_KELOMPOK).forEach((k) => {
+          perKelompok[k] = { terkumpul: terverifikasi.filter((z) => z.kelompok === k).reduce((a, b) => a + (Number(b.jumlah) || 0), 0), jumlah: terverifikasi.filter((z) => z.kelompok === k).length };
+        });
+        return {
+          perJenis, perKelompok,
+          totalTerkumpul: terverifikasi.reduce((a, b) => a + (Number(b.jumlah) || 0), 0),
+          totalTersalur: db.ziswafSalur.reduce((a, b) => a + (Number(b.nominal) || 0), 0),
+          jumlahMenunggu: db.ziswaf.filter((z) => z.status === "menunggu").length,
+          jumlahTransaksi: db.ziswaf.length
+        };
+      },
+
       /* ---------- VOLUNTEER & KEGIATAN & KOMUNITAS ---------- */
       async upsertVolunteer(data) {
         const u = me(); if (!u) throw new Error("Harus masuk.");
@@ -496,6 +641,12 @@ window.SB = window.SB || {};
     }
     function mapDon(d) {
       return { id: d.id, kuitansi: d.receipt_number, requestId: d.request_id, donorId: d.donor_id, donorNama: d.donor_name, anonim: d.is_anonymous, jenis: d.type, jumlah: Number(d.amount), barang: d.item_description, pesan: d.message, status: d.status, tanggal: d.created_at };
+    }
+    function mapZiswaf(z) {
+      return { id: z.id, kode: z.kode, jenis: z.jenis, program: z.program || "", kelompok: z.kelompok || "umum", kelas: z.kelas || "", userId: z.donor_id, donorNama: z.is_anonymous ? "Hamba Allah" : z.donor_name, anonim: z.is_anonymous, bentuk: z.bentuk || "uang", jumlah: Number(z.jumlah) || 0, barangDetail: z.item_description || "", metode: z.metode || "transfer_bank", status: z.status, catatan: z.note || "", tanggal: z.created_at };
+    }
+    function mapZiswafSalur(x) {
+      return { id: x.id, kode: x.kode, jenis: x.jenis, mustahik: x.mustahik, penerima: x.penerima || "", jumlahPenerima: Number(x.recipient_count) || 0, bentuk: x.bentuk || "Uang", nominal: Number(x.amount) || 0, catatan: x.note || "", oleh: x.distributed_by, tanggal: x.distributed_at || x.created_at };
     }
 
     return {
@@ -705,6 +856,129 @@ window.SB = window.SB || {};
         const { data, error } = await sb.from("v_penyaluran_publik").select("*").order("distributed_at", { ascending: false });
         if (error) return [];
         return data || [];
+      },
+
+      /* ---------- ZISWAF (Zakat, Infaq, Sedekah, Wakaf) ---------- */
+      async listZiswaf(f) {
+        f = f || {};
+        let q;
+        if (f.publikOnly) {
+          /* tampilan publik (view tersanitasi, hanya terverifikasi) */
+          q = sb.from("v_ziswaf_publik").select("*").order("created_at", { ascending: false });
+        } else {
+          q = sb.from("ziswaf_transactions").select("*").order("created_at", { ascending: false });
+          if (f.donorId) q = q.eq("donor_id", f.donorId);
+          if (f.status) q = q.eq("status", f.status);
+        }
+        if (f.jenis) q = q.eq("jenis", f.jenis);
+        if (f.kelompok) q = q.eq("kelompok", f.kelompok);
+        const { data, error } = await q;
+        if (error) throw new Error(error.message);
+        return (data || []).map(f.publikOnly ? (z) => ({
+          id: z.id, kode: z.kode, jenis: z.jenis, program: z.program || "", kelompok: z.kelompok || "umum",
+          kelas: z.kelas || "", donorNama: z.donor_nama, anonim: z.donor_nama === "Hamba Allah",
+          bentuk: z.bentuk || "uang", jumlah: Number(z.jumlah) || 0, barangDetail: z.item_description || "",
+          metode: z.metode || "transfer_bank", status: "terverifikasi", catatan: "", tanggal: z.created_at
+        }) : mapZiswaf);
+      },
+      async createZiswaf(data) {
+        const u = await meRow(); if (!u) throw new Error("Masuk dulu untuk mencatat ZISWAF (bisa daftar gratis).");
+        const ins = {
+          jenis: data.jenis, program: data.program || "",
+          kelompok: S.ZISWAF_KELOMPOK[data.kelompok] ? data.kelompok : "umum",
+          kelas: data.kelas || "", donor_id: u.id,
+          donor_name: data.anonim ? "Hamba Allah" : (data.donorNama || u.nama),
+          is_anonymous: !!data.anonim, bentuk: data.bentuk === "barang" ? "barang" : "uang",
+          jumlah: Number(data.jumlah) || 0, item_description: data.barangDetail || "",
+          metode: data.metode || "transfer_bank", note: data.catatan || ""
+        };
+        const { data: row, error } = await sb.from("ziswaf_transactions").insert(ins).select().single();
+        if (error) throw new Error(error.message);
+        return mapZiswaf(row);
+      },
+      async updateZiswafAdmin(id, patch) {
+        const u = await meRow(); if (!u || !["admin", "pengelola"].includes(u.peran)) throw new Error("Hanya admin/pengelola.");
+        const p = {};
+        if (patch.jenis != null) p.jenis = patch.jenis;
+        if (patch.program != null) p.program = patch.program;
+        if (patch.kelompok != null) p.kelompok = patch.kelompok;
+        if (patch.kelas != null) p.kelas = patch.kelas;
+        if (patch.donorNama != null) p.donor_name = patch.donorNama;
+        if (patch.anonim != null) { p.is_anonymous = !!patch.anonim; if (p.is_anonymous) p.donor_name = "Hamba Allah"; }
+        if (patch.bentuk != null) p.bentuk = patch.bentuk === "barang" ? "barang" : "uang";
+        if (patch.jumlah != null) p.jumlah = Number(patch.jumlah) || 0;
+        if (patch.barangDetail != null) p.item_description = patch.barangDetail;
+        if (patch.metode != null) p.metode = patch.metode;
+        if (patch.catatan != null) p.note = patch.catatan;
+        if (patch.status != null) p.status = patch.status;
+        const { data, error } = await sb.from("ziswaf_transactions").update(p).eq("id", id).select().single();
+        if (error) throw new Error(error.message);
+        return mapZiswaf(data);
+      },
+      async verifyZiswaf(id, ok, catatan) {
+        const u = await meRow(); if (!u || !["admin", "pengelola"].includes(u.peran)) throw new Error("Hanya admin/pengelola.");
+        const { data, error } = await sb.from("ziswaf_transactions")
+          .update({ status: ok ? "terverifikasi" : "ditolak", verified_by: u.id, verified_at: new Date().toISOString() })
+          .eq("id", id).select().single();
+        if (error) throw new Error(error.message);
+        void catatan;
+        return mapZiswaf(data);
+      },
+      async listZiswafSalur(f) {
+        f = f || {};
+        const q = f.publikOnly
+          ? sb.from("v_ziswaf_salur_publik").select("*")
+          : sb.from("ziswaf_distributions").select("*");
+        const { data, error } = await q.order("distributed_at", { ascending: false });
+        if (error) throw new Error(error.message);
+        return (data || []).map(mapZiswafSalur);
+      },
+      async createZiswafSalur(data) {
+        const u = await meRow(); if (!u || !["admin", "pengelola"].includes(u.peran)) throw new Error("Hanya admin/pengelola.");
+        const { data: row, error } = await sb.from("ziswaf_distributions").insert({
+          jenis: data.jenis, mustahik: data.mustahik || "kemanusiaan",
+          penerima: data.penerima || "", recipient_count: Number(data.jumlahPenerima) || 0,
+          bentuk: data.bentuk || "Uang", amount: Number(data.nominal) || 0,
+          note: data.catatan || "", distributed_by: u.id
+        }).select().single();
+        if (error) throw new Error(error.message);
+        return mapZiswafSalur(row);
+      },
+      async updateZiswafSalurAdmin(id, patch) {
+        const u = await meRow(); if (!u || !["admin", "pengelola"].includes(u.peran)) throw new Error("Hanya admin/pengelola.");
+        const p = {};
+        if (patch.jenis != null) p.jenis = patch.jenis;
+        if (patch.mustahik != null) p.mustahik = patch.mustahik;
+        if (patch.penerima != null) p.penerima = patch.penerima;
+        if (patch.jumlahPenerima != null) p.recipient_count = Number(patch.jumlahPenerima) || 0;
+        if (patch.bentuk != null) p.bentuk = patch.bentuk;
+        if (patch.nominal != null) p.amount = Number(patch.nominal) || 0;
+        if (patch.catatan != null) p.note = patch.catatan;
+        const { data, error } = await sb.from("ziswaf_distributions").update(p).eq("id", id).select().single();
+        if (error) throw new Error(error.message);
+        return mapZiswafSalur(data);
+      },
+      async ziswafStats() {
+        const { data, error } = await sb.rpc("ziswaf_stats");
+        if (error) throw new Error(error.message);
+        const s = data || {};
+        const pj = s.per_jenis || {}, pk = s.per_kelompok || {};
+        const perJenis = {}, perKelompok = {};
+        Object.keys(S.ZISWAF_JENIS).forEach((j) => {
+          const x = pj[j] || {};
+          perJenis[j] = { terkumpul: Number(x.terkumpul) || 0, tersalur: Number(x.tersalur) || 0, saldo: Number(x.saldo) || 0, jumlah: Number(x.jumlah) || 0 };
+        });
+        Object.keys(S.ZISWAF_KELOMPOK).forEach((k) => {
+          const x = pk[k] || {};
+          perKelompok[k] = { terkumpul: Number(x.terkumpul) || 0, jumlah: Number(x.jumlah) || 0 };
+        });
+        return {
+          perJenis, perKelompok,
+          totalTerkumpul: Number(s.total_terkumpul) || 0,
+          totalTersalur: Number(s.total_tersalur) || 0,
+          jumlahMenunggu: Number(s.jumlah_menunggu) || 0,
+          jumlahTransaksi: Number(s.jumlah_transaksi) || 0
+        };
       },
 
       async upsertVolunteer(data) {

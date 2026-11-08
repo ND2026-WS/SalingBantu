@@ -11,6 +11,7 @@
     { id: "beranda", label: "Beranda", href: "index.html" },
     { id: "cari", label: "Cari Bantuan", href: "cari-bantuan.html" },
     { id: "membantu", label: "Ingin Membantu", href: "ingin-membantu.html" },
+    { id: "ziswaf", label: "ZISWAF", href: "ziswaf.html" },
     { id: "cerita", label: "Cerita Kebaikan", href: "cerita-kebaikan.html" },
     { id: "tentang", label: "Tentang Kami", href: "tentang.html" }
   ];
@@ -133,7 +134,7 @@
       '<div class="f-brand"><span class="brand-logo">' + logoSvg(20) + '</span><span class="brand-txt"><b style="color:#fff">' + S.esc(SB.teks ? SB.teks("app_nama") : cfg.APP_NAME) + '</b><small style="color:#94a3b8">' + S.esc(SB.teks ? SB.teks("app_tagline") : cfg.APP_TAGLINE) + "</small></span></div>" +
       "<p>" + S.esc(SB.teks ? SB.teks("footer_tentang") : "Platform gotong royong digital yang menghubungkan mereka yang membutuhkan bantuan dengan hati-hati yang ingin membantu. Setiap rupiah dan setiap tenaga tercatat transparan.") + "</p>" +
       "</div>" +
-      "<div><h4>Jelajahi</h4><a href=\"index.html\">Beranda</a><a href=\"cari-bantuan.html\">Cari Bantuan</a><a href=\"ingin-membantu.html\">Ingin Membantu</a><a href=\"cerita-kebaikan.html\">Cerita Kebaikan</a><a href=\"transparansi.html\">Transparansi</a><a href=\"tentang.html\">Tentang Kami</a></div>" +
+      "<div><h4>Jelajahi</h4><a href=\"index.html\">Beranda</a><a href=\"cari-bantuan.html\">Cari Bantuan</a><a href=\"ingin-membantu.html\">Ingin Membantu</a><a href=\"ziswaf.html\">ZISWAF</a><a href=\"cerita-kebaikan.html\">Cerita Kebaikan</a><a href=\"transparansi.html\">Transparansi</a><a href=\"tentang.html\">Tentang Kami</a></div>" +
       "<div><h4>Kategori Bantuan</h4>" + cats + "</div>" +
       "<div><h4>Hubungi Kami</h4><p>" + S.icon("message", 14) + " " + S.esc(SB.teks ? SB.teks("email_kontak") : cfg.EMAIL_KONTAK) + "</p><p>" + S.icon("bell", 14) + " " + S.esc(SB.teks ? SB.teks("wa_kontak") : cfg.WA_KONTAK) + "</p><p style=\"margin-top:10px\">Lihat laporan dana publik kami di halaman <a href=\"transparansi.html\" style=\"color:#86efac\">Transparansi</a>.</p></div>" +
       "</div>" +

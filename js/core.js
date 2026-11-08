@@ -143,6 +143,57 @@ window.SB = window.SB || {};
     jaringan:  { label: "Jaringan / Koneksi", icon: "users" },
   };
 
+  /* ---------- Modul ZISWAF (Zakat, Infaq, Sedekah, Wakaf) ----------
+     Modul pengelolaan dana ZISWAF yayasan/sekolah Islam terpadu:
+     pemberi dari siswa, guru & tendik, orang tua santri, dan umum;
+     penyaluran kepada mustahik (8 asnaf + program yayasan). */
+  const ZISWAF_JENIS = {
+    zakat:  { label: "Zakat",  icon: "heartHand", warna: "hijau",
+      ket: "Zakat maal & penghasilan — disalurkan kepada 8 asnaf sesuai syariat." },
+    infaq:  { label: "Infaq",  icon: "gift", warna: "biru",
+      ket: "Infaq untuk operasional masjid & sekolah serta kegiatan kebaikan." },
+    sedekah:{ label: "Sedekah", icon: "heart", warna: "oranye",
+      ket: "Sedekah sukarela: beasiswa yatim, santunan dhuafa, dan kepedulian sosial." },
+    wakaf:  { label: "Wakaf",  icon: "book", warna: "ungu",
+      ket: "Wakaf untuk fasilitas pendidikan & ibadah — manfaatnya terus mengalir." },
+  };
+  const ZISWAF_KELOMPOK = {
+    siswa:      { label: "Siswa", icon: "book" },
+    guru:       { label: "Guru & Tendik", icon: "award" },
+    ortu_santri:{ label: "Orang Tua Santri", icon: "users" },
+    umum:       { label: "Masyarakat Umum", icon: "heartHand" },
+  };
+  const ZISWAF_MUSTAHIK = {
+    fakir:       { label: "Fakir", asnaf: true },
+    miskin:      { label: "Miskin", asnaf: true },
+    amil:        { label: "Amil / Pengelola ZISWAF", asnaf: true },
+    muallaf:     { label: "Muallaf", asnaf: true },
+    riqab:       { label: "Riqab (Memerdekakan)", asnaf: true },
+    gharim:      { label: "Gharim (Terjerat Utang)", asnaf: true },
+    fisabilillah:{ label: "Fisabilillah", asnaf: true },
+    ibnu_sabil:  { label: "Ibnu Sabil (Perantau)", asnaf: true },
+    beasiswa:    { label: "Beasiswa Siswa Yatim & Dhuafa", asnaf: false },
+    operasional: { label: "Operasional Masjid & Sekolah", asnaf: false },
+    pembangunan: { label: "Pembangunan Fasilitas", asnaf: false },
+    kemanusiaan: { label: "Aksi Kemanusiaan & Sosial", asnaf: false },
+  };
+  const ZISWAF_PROGRAM = {
+    zakat:   ["Zakat Penghasilan", "Zakat Maal", "Zakat Fitrah (Uang)", "Fidiyah"],
+    infaq:   ["Infaq Jumat", "Kotak Amal", "Infaq Masjid Sekolah", "Infaq Kegiatan Siswa", "Infaq Bebas"],
+    sedekah: ["Sedekah Subuh", "Beasiswa Yatim", "Santunan Dhuafa", "Sedekah Buku", "Sedekah Jumat"],
+    wakaf:   ["Wakaf Pembangunan", "Wakaf Tanah", "Wakaf Buku & Alat", "Cash Waqf (Wakaf Uang)"],
+  };
+  const ZISWAF_STATUS = {
+    menunggu:      { label: "Menunggu Verifikasi", warna: "abu" },
+    terverifikasi: { label: "Terverifikasi", warna: "hijau" },
+    ditolak:       { label: "Ditolak", warna: "merah" },
+  };
+  const ZISWAF_METODE = {
+    transfer_bank: "Transfer Bank",
+    tunai:         "Tunai / Kotak Amal",
+    qris:          "QRIS",
+  };
+
   const JENIS_NOTIF = {
     pengajuan_diterima:      { label: "Pengajuan diterima", icon: "file" },
     verifikasi_dimulai:      { label: "Sedang diverifikasi", icon: "shield" },
@@ -238,6 +289,9 @@ window.SB = window.SB || {};
   SB.param = param; SB.uid = uid; SB.sekarang = sekarang; SB.inisial = inisial;
   SB.icon = icon; SB.KATEGORI = KATEGORI; SB.STATUS = STATUS; SB.URUTAN_STATUS = URUTAN_STATUS;
   SB.JENIS_BANTUAN = JENIS_BANTUAN; SB.JENIS_NOTIF = JENIS_NOTIF;
+  SB.ZISWAF_JENIS = ZISWAF_JENIS; SB.ZISWAF_KELOMPOK = ZISWAF_KELOMPOK;
+  SB.ZISWAF_MUSTAHIK = ZISWAF_MUSTAHIK; SB.ZISWAF_PROGRAM = ZISWAF_PROGRAM;
+  SB.ZISWAF_STATUS = ZISWAF_STATUS; SB.ZISWAF_METODE = ZISWAF_METODE;
   SB.toast = toast; SB.modal = modal; SB.modalClose = modalClose; SB.konfirmasi = konfirmasi;
   SB.badgeStatus = badgeStatus; SB.badgeKategori = badgeKategori; SB.progress = progress;
   SB.avatar = avatar; SB.kosong = kosong; SB.timeline = timeline;
