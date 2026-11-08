@@ -5,9 +5,10 @@
    1. Buat proyek di https://supabase.com  ->  New project
    2. Jalankan sql/supabase_schema.sql di SQL Editor
    3. Project Settings -> API -> salin URL & anon public key
-   4. Tempel di bawah ini. Selesai — aplikasi otomatis memakai
-      database Supabase. Jika dikosongkan, aplikasi berjalan
-      dalam MODE DEMO (data di localStorage, tanpa server).
+   4. Tempel di file ini ATAU lewat Panel Admin -> Pengaturan
+      (tersimpan di localStorage "sb_koneksi", berlaku otomatis
+      di semua halaman). Jika kosong, aplikasi berjalan dalam
+      MODE DEMO (data di localStorage, tanpa server).
 
    PERINGATAN KEAMANAN:
    Gunakan HANYA "anon public key". Service_role key TIDAK BOLEH
@@ -30,4 +31,11 @@ const SB_CONFIG = {
     atas_nama: "Yayasan Saling Bantu Nusantara",
   },
 };
+
+/* Override dari Panel Admin -> Pengaturan (disimpan di browser) */
+let SB_TERSIMPAN = null;
+try { SB_TERSIMPAN = JSON.parse(localStorage.getItem("sb_koneksi") || "null"); }
+catch (e) { SB_TERSIMPAN = null; }
+
+const SB_CONFIG = Object.assign({}, SB_DEFAULTS, SB_TERSIMPAN || {});
 window.SB_CONFIG = SB_CONFIG;

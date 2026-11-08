@@ -137,9 +137,10 @@
   document.addEventListener("DOMContentLoaded", async () => {
     initTabs();
     initJenis();
-    $("#bank-nama").textContent = window.SB_CONFIG.BANK.nama;
-    $("#bank-rek").textContent = window.SB_CONFIG.BANK.rekening;
-    $("#bank-an").textContent = window.SB_CONFIG.BANK.atas_nama;
+    if (SB.muatKonten) await SB.muatKonten(); /* teks rekening ikut CMS "Isi Website" */
+    $("#bank-nama").textContent = SB.teks ? SB.teks("bank_nama") : window.SB_CONFIG.BANK.nama;
+    $("#bank-rek").textContent = SB.teks ? SB.teks("bank_rekening") : window.SB_CONFIG.BANK.rekening;
+    $("#bank-an").textContent = SB.teks ? SB.teks("bank_atas_nama") : window.SB_CONFIG.BANK.atas_nama;
 
     user = await S.store.currentUser();
     if (!user) {

@@ -72,6 +72,7 @@ window.SB = window.SB || {};
       logs: [],
       audit: [],
       lapor: [],
+      konten: {},
       counters: { req: 6, kuitansi: 4 }
     };
   }
@@ -178,6 +179,77 @@ window.SB = window.SB || {};
       async setUserAktif(id, aktif) { const u = userById(id); if (u) u.aktif = aktif; saveDb(db); },
       async verifyUser(id, ok) { const u = userById(id); if (u) u.terverifikasi = ok; saveDb(db); },
       async setRole(id, peran) { const u = userById(id); if (u) u.peran = peran; saveDb(db); },
+      async updateUserAdmin(id, patch) {
+        const u = userById(id); if (!u) throw new Error("Pengguna tidak ditemukan.");
+        if (patch.nama != null && String(patch.nama).trim()) u.nama = String(patch.nama).trim();
+        if (patch.telepon != null) u.telepon = patch.telepon;
+        if (patch.kota != null) u.kota = patch.kota;
+        if (patch.bio != null) u.bio = patch.bio;
+        if (patch.peran != null) u.peran = patch.peran;
+        db.audit.unshift({ id: uid(), aktor: (me() || {}).nama || "admin", aksi: "update", entitas: "profiles", entitasId: id, detail: { nama: u.nama, peran: u.peran }, tanggal: now() });
+        saveDb(db); return u;
+      },
+      async updateRequestAdmin(id, patch) {
+        const r = db.requests.find((x) => x.id === id); if (!r) throw new Error("Pengajuan tidak ditemukan.");
+        if (patch.judul != null) r.judul = String(patch.judul).trim();
+        if (patch.deskripsi != null) r.deskripsi = patch.deskripsi;
+        if (patch.kategori != null) r.kategori = patch.kategori;
+        if (patch.sub != null) r.sub = patch.sub;
+        if (patch.kota != null) r.kota = patch.kota;
+        if (patch.provinsi != null) r.provinsi = patch.provinsi;
+        if (patch.kontak != null) r.kontak = patch.kontak;
+        if (patch.namaPenerima != null) r.namaPenerima = patch.namaPenerima;
+        if (patch.kebutuhan != null && !isNaN(Number(patch.kebutuhan)) && Number(patch.kebutuhan) >= 0) r.kebutuhan = Number(patch.kebutuhan);
+        if (patch.publik != null) r.publik = !!patch.publik;
+        db.audit.unshift({ id: uid(), aktor: (me() || {}).nama || "admin", aksi: "update", entitas: "assistance_requests", entitasId: id, detail: { judul: r.judul }, tanggal: now() });
+        saveDb(db); return r;
+      },
+      async updateDonationAdmin(id, patch) {
+        const d = db.donations.find((x) => x.id === id); if (!d) throw new Error("Donasi tidak ditemukan.");
+        const lama = { jenis: d.jenis, status: d.status, jumlah: d.jumlah };
+        if (patch.donorNama != null) d.donorNama = patch.donorNama;
+        if (patch.anonim != null) d.anonim = !!patch.anonim;
+        if (patch.jenis != null) d.jenis = patch.jenis;
+        if (patch.barang != null) d.barang = patch.barang;
+        if (patch.pesan != null) d.pesan = patch.pesan;
+        if (patch.status != null) d.status = patch.status;
+        if (patch.jumlah != null && !isNaN(Number(patch.jumlah)) && Number(patch.jumlah) >= 0) d.jumlah = Number(patch.jumlah);
+        // sesuaikan dana terkumpul proyek bila donasi finansial terkonfirmasi berubah nominalnya
+        if (lama.jenis === "finansial" && lama.status === "terkonfirmasi" && d.jumlah !== lama.jumlah) {
+          const r = db.requests.find((x) => x.id === d.requestId);
+          if (r) r.terkumpul = Math.max(0, r.terkumpul + (d.jumlah - lama.jumlah));
+        }
+        db.audit.unshift({ id: uid(), aktor: (me() || {}).nama || "admin", aksi: "update", entitas: "donations", entitasId: id, detail: { kuitansi: d.kuitansi }, tanggal: now() });
+        saveDb(db); return d;
+      },
+      async updateStoryAdmin(id, patch) {
+        const s = db.stories.find((x) => x.id === id); if (!s) throw new Error("Cerita tidak ditemukan.");
+        if (patch.judul != null) s.judul = String(patch.judul).trim();
+        if (patch.isi != null) s.isi = patch.isi;
+        if (patch.kategori != null) s.kategori = patch.kategori;
+        db.audit.unshift({ id: uid(), aktor: (me() || {}).nama || "admin", aksi: "update", entitas: "stories", entitasId: id, detail: { judul: s.judul }, tanggal: now() });
+        saveDb(db); return s;
+      },
+
+      /* ---------- ISI WEBSITE (CMS) ---------- */
+      async getContent() {
+        await sleep(40);
+        return Object.assign({}, db.konten || {});
+      },
+      async setContent(patch) {
+        const u = me();
+        if (!u || !["admin", "pengelola"].includes(u.peran)) throw new Error("Hanya admin/pengelola yang dapat mengubah isi website.");
+        db.konten = Object.assign({}, db.konten || {}, patch || {});
+        db.audit.unshift({ id: uid(), aktor: u.nama, aksi: "update", entitas: "site_content", entitasId: Object.keys(patch || {}).slice(0, 3).join(","), detail: { kunci: Object.keys(patch || {}) }, tanggal: now() });
+        saveDb(db); return Object.assign({}, db.konten);
+      },
+      async resetKonten(kunci) {
+        const u = me();
+        if (!u || !["admin", "pengelola"].includes(u.peran)) throw new Error("Hanya admin/pengelola yang dapat mengubah isi website.");
+        (kunci || []).forEach((k) => { delete db.konten[k]; });
+        db.audit.unshift({ id: uid(), aktor: u.nama, aksi: "reset", entitas: "site_content", entitasId: "", detail: { kunci: kunci || [] }, tanggal: now() });
+        saveDb(db); return Object.assign({}, db.konten);
+      },
 
       /* ---------- PENGAJUAN ---------- */
       async listRequests(f) {
@@ -428,6 +500,7 @@ window.SB = window.SB || {};
 
     return {
       mode: "supabase",
+      client: sb, /* akses channel realtime utk dashboard admin */
       async currentUser() { try { return await meRow(); } catch (e) { return null; } },
       async signUp({ nama, email, telepon, sandi, peran }) {
         const { data, error } = await sb.auth.signUp({
@@ -476,6 +549,80 @@ window.SB = window.SB || {};
       async setUserAktif(id, aktif) { const { error } = await sb.from("profiles").update({ is_active: aktif }).eq("id", id); if (error) throw new Error(error.message); },
       async verifyUser(id, ok) { const { error } = await sb.from("profiles").update({ is_verified: ok }).eq("id", id); if (error) throw new Error(error.message); },
       async setRole(id, peran) { const { error } = await sb.from("profiles").update({ role: peran }).eq("id", id); if (error) throw new Error(error.message); },
+      async updateUserAdmin(id, patch) {
+        const me = await meRow(); if (!me || me.peran !== "admin") throw new Error("Hanya admin yang dapat mengedit pengguna.");
+        const p = {};
+        if (patch.nama != null && String(patch.nama).trim()) p.full_name = String(patch.nama).trim();
+        if (patch.telepon != null) p.phone = patch.telepon;
+        if (patch.kota != null) p.city = patch.kota;
+        if (patch.bio != null) p.bio = patch.bio;
+        if (patch.peran != null) p.role = patch.peran;
+        const { error } = await sb.from("profiles").update(p).eq("id", id);
+        if (error) throw new Error(error.message);
+      },
+      async updateRequestAdmin(id, patch) {
+        const me = await meRow(); if (!me || me.peran !== "admin") throw new Error("Hanya admin yang dapat mengedit pengajuan.");
+        const p = {};
+        if (patch.judul != null) p.title = String(patch.judul).trim();
+        if (patch.deskripsi != null) p.description = patch.deskripsi;
+        if (patch.kategori != null) p.category_code = patch.kategori;
+        if (patch.sub != null) p.sub_category = patch.sub;
+        if (patch.kota != null) p.city = patch.kota;
+        if (patch.provinsi != null) p.province = patch.provinsi;
+        if (patch.kontak != null) p.contact = patch.kontak;
+        if (patch.namaPenerima != null) p.beneficiary_name = patch.namaPenerima;
+        if (patch.kebutuhan != null) p.amount_needed = Number(patch.kebutuhan) || 0;
+        if (patch.publik != null) p.is_public = !!patch.publik;
+        const { error } = await sb.from("assistance_requests").update(p).eq("id", id);
+        if (error) throw new Error(error.message);
+      },
+      async updateDonationAdmin(id, patch) {
+        const me = await meRow(); if (!me || me.peran !== "admin") throw new Error("Hanya admin yang dapat mengedit donasi.");
+        const p = {};
+        if (patch.donorNama != null) p.donor_name = patch.donorNama;
+        if (patch.anonim != null) p.is_anonymous = !!patch.anonim;
+        if (patch.jenis != null) p.type = patch.jenis;
+        if (patch.jumlah != null) p.amount = Number(patch.jumlah) || 0;
+        if (patch.barang != null) p.item_description = patch.barang;
+        if (patch.pesan != null) p.message = patch.pesan;
+        if (patch.status != null) p.status = patch.status;
+        const { error } = await sb.from("donations").update(p).eq("id", id);
+        if (error) throw new Error(error.message);
+      },
+      async updateStoryAdmin(id, patch) {
+        const me = await meRow(); if (!me || me.peran !== "admin") throw new Error("Hanya admin yang dapat mengedit cerita.");
+        const p = {};
+        if (patch.judul != null) p.title = String(patch.judul).trim();
+        if (patch.isi != null) p.content = patch.isi;
+        if (patch.kategori != null) p.category_code = patch.kategori;
+        const { error } = await sb.from("stories").update(p).eq("id", id);
+        if (error) throw new Error(error.message);
+      },
+
+      /* ---------- ISI WEBSITE (CMS, tabel site_content) ---------- */
+      async getContent() {
+        const { data, error } = await sb.from("site_content").select("key,value");
+        if (error) throw new Error(error.message);
+        const m = {};
+        (data || []).forEach((r) => { m[r.key] = r.value; });
+        return m;
+      },
+      async setContent(patch) {
+        const me = await meRow();
+        if (!me || !["admin", "pengelola"].includes(me.peran)) throw new Error("Hanya admin/pengelola yang dapat mengubah isi website.");
+        const rows = Object.entries(patch || {}).map(([key, value]) => ({ key, value: String(value == null ? "" : value), updated_by: me.id, updated_at: new Date().toISOString() }));
+        if (!rows.length) return {};
+        const { error } = await sb.from("site_content").upsert(rows, { onConflict: "key" });
+        if (error) throw new Error(error.message);
+        return patch;
+      },
+      async resetKonten(kunci) {
+        const me = await meRow();
+        if (!me || !["admin", "pengelola"].includes(me.peran)) throw new Error("Hanya admin/pengelola yang dapat mengubah isi website.");
+        if (!kunci || !kunci.length) return;
+        const { error } = await sb.from("site_content").delete().in("key", kunci);
+        if (error) throw new Error(error.message);
+      },
 
       async listRequests(f) {
         f = f || {};

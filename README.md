@@ -69,14 +69,18 @@ saling-bantu/
 ├── transparansi.html       Laporan dana publik + privasi penerima
 ├── tentang.html            Tentang kami (5 tujuan, 5 nilai)
 ├── dashboard.html          Dashboard pengguna (8 menu)
-├── admin.html              Dashboard admin (6 modul)
+├── admin.html              Panel admin (9 menu: Statistik, Realtime,
+│                           Pengguna, Pengajuan, Donasi, Konten, Isi Website,
+│                           Laporan, Pengaturan)
 ├── css/style.css           Design system (hijau, biru, putih, oranye)
 ├── js/config.js            Kredensial Supabase (isi di sini)
 ├── js/core.js              Util, ikon SVG, metadata (kategori/status/jenis)
+├── js/konten.js            CMS "Isi Website" (definisi & penerapan teks)
 ├── js/store.js             Lapisan data: DemoBackend + SupabaseBackend
 ├── js/main.js              Header, footer, auth state, notifikasi lonceng
 ├── js/beranda.js …         Logika per halaman
-└── sql/supabase_schema.sql Skema database lengkap (jalankan di SQL Editor)
+├── sql/supabase_schema.sql Skema database lengkap (jalankan di SQL Editor)
+└── sql/update_cms_realtime.sql  Pembaruan utk database lama (CMS + realtime)
 ```
 
 ## 4. Alur Utama Aplikasi
@@ -127,3 +131,69 @@ donasi, kuitansi, notifikasi, dashboard, transparansi) pada 8 November 2026:
    kuitansi digital (KWT-YYYYMMDD-XXXXX) dengan tombol cetak, lonceng notifikasi,
    tab volunteer & komunitas, serta kontrol akses (pengguna non-admin ditolak di
    panel admin).
+
+---
+
+## 7. Catatan Pembaruan (v1.2)
+
+1. **Perbaikan — error "perBulan is not defined"**: menu Statistik & Laporan admin
+   gagal dimuat saat terhubung Supabase (`js/store.js`). Sudah diperbaiki; tabel
+   Jejak Audit di Laporan kini juga menampilkan nama aktor, aksi, dan entitas
+   dengan benar (sebelumnya `undefined`).
+2. **Fitur baru — tombol Edit di setiap modul admin** (khusus admin/pengelola):
+   - *Manajemen Pengguna*: edit nama, telepon, kota, bio, dan peran (peran akun
+     sendiri dikunci untuk mencegah admin terkunci dari panel).
+   - *Manajemen Pengajuan*: edit judul, kategori, sub-kategori, penerima, nominal
+     kebutuhan, lokasi, kontak, deskripsi, dan tampil/tidaknya di halaman publik.
+     Juga tersedia lewat modal Detail → tombol **Edit Data**.
+   - *Manajemen Donasi*: edit nama donatur, anonim, jenis, nominal, rincian
+     barang, pesan, dan status (di Mode Demo, perubahan nominal donasi finansial
+     terkonfirmasi otomatis menyesuaikan dana terkumpul proyek).
+   - *Manajemen Konten*: edit judul, kategori, dan isi cerita; edit judul
+     pengumuman platform.
+   Semua perubahan edit tercatat di jejak audit.
+3. **Fitur baru — menu Pengaturan di panel admin**: kelola koneksi Supabase
+   langsung dari aplikasi tanpa menyunting `js/config.js` — isi Project URL &
+   anon public key, klik **Uji Koneksi** (memanggil `platform_stats()` untuk
+   memverifikasi schema), lalu **Simpan & Terhubung** (tersimpan di
+   `localStorage "sb_koneksi"`, berlaku di semua halaman). Tombol **Pakai Mode
+   Demo** menghapus koneksi tersimpan. Konfigurasi tetap bisa diisi lewat
+   `js/config.js` seperti sebelumnya; keduanya digabung otomatis.
+
+---
+
+## 8. Catatan Pembaruan (v1.3)
+
+1. **Fitur baru — menu "Isi Website" (CMS, khusus admin/pengelola)**: admin kini
+   dapat mengedit **seluruh teks publik website** tanpa menyentuh kode — 39 field
+   dalam 7 grup:
+   - *Identitas Aplikasi* (nama, tagline, email, WhatsApp),
+   - *Hero Beranda* (lencana, judul, deskripsi, tombol, kartu kecil),
+   - *Statistik Beranda* (5 angka + labelnya; data nyata platform ditambahkan
+     otomatis di atas angka dasar),
+   - *Judul Bagian Beranda* (bantuan terbaru, kategori, cerita),
+   - *Ajakan Bergabung/CTA*, *Footer*, dan *Rekening Donasi*.
+   Tersimpan di tabel `site_content` (Supabase) atau localStorage (Mode Demo);
+   setelah **Simpan Semua Perubahan**, teks baru langsung tampil di semua halaman.
+   Tiap grup punya tombol **Kembalikan Default**. Lapisan teknis ada di
+   `js/konten.js` (`SB.KONTEN_DEF`, `SB.muatKonten`, `SB.teks`, `SB.terapkanKonten`);
+   halaman memakai atribut `data-sb="kunci"` / `data-sb-hitung="kunci"`.
+2. **Fitur baru — menu "Realtime" (dashboard website real-time)**: pemantauan
+   langsung tanpa memuat ulang halaman — 6 KPI hidup (donasi & pengajuan hari ini,
+   pengguna baru, antrean verifikasi/konfirmasi, total dana), feed aktivitas
+   terbaru (donasi, pengajuan, aksi admin) dengan penanda **BARU** + animasi,
+   grafik donasi 7 hari terakhir, daftar "menunggu tindakan", penghitung event,
+   dan jam pembaruan. Di mode Supabase memakai kanal **Supabase Realtime**
+   (`postgres_changes`, seluruh schema) sehingga setiap INSERT/UPDATE langsung
+   tampil + notifikasi toast "Donasi baru masuk!"; di Mode Demo memakai pemantauan
+   berkala tiap 5 detik + sinkronisasi antar-tab via `storage` event. Kanal
+   otomatis dilepas saat pindah menu.
+3. **Role baru "pengelola"**: setara admin untuk mengelola panel (ditambahkan ke
+   enum `app_role`, dropdown peran, dan guard akses `admin.html`). Keamanan data
+   ditegakkan RLS melalui fungsi `is_pengelola()`.
+4. **Database — untuk database lama jalankan `sql/update_cms_realtime.sql`**
+   (Supabase → SQL Editor → Run): menambah tabel `site_content` + RLS, value enum
+   `pengelola`, fungsi `is_pengelola()`, dan mendaftarkan tabel utama ke
+   publication `supabase_realtime`. Database baru cukup menjalankan
+   `sql/supabase_schema.sql` (bagian 19 sudah termasuk).
+

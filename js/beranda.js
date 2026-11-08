@@ -80,6 +80,10 @@
   }
 
   document.addEventListener("DOMContentLoaded", async () => {
+    /* Muat teks CMS (Panel Admin -> Isi Website) sebelum menggambar angka */
+    if (SB.muatKonten) await SB.muatKonten();
+    if (SB.terapkanKonten) SB.terapkanKonten();
+
     /* Kategori */
     document.getElementById("cat-grid").innerHTML = Object.entries(S.KATEGORI).map(([k, m]) =>
       '<a class="cat-card" href="cari-bantuan.html?kategori=' + k + '">' +
@@ -87,17 +91,18 @@
       "<div><h3>" + S.esc(m.label) + "</h3><p>" + S.esc(m.desc) + "</p>" +
       '<span class="sub-n">' + m.sub.length + " sub-kategori →</span></div></a>").join("");
 
-    /* Statistik & kartu dari store */
+    /* Statistik & kartu dari store (data nyata ditambahkan di atas angka dasar CMS) */
     try {
       const stats = await S.store.platformStats().catch(() => null);
       if (stats) {
         const map = [
-          ["total_pengguna", 12480], ["total_pengajuan", 3276], ["total_tersalur", 2914],
-          ["total_volunteer", 1850], ["total_komunitas", 320]
+          ["total_pengguna", "stat_pengguna"], ["total_pengajuan", "stat_pengajuan"], ["total_tersalur", "stat_tersalur"],
+          ["total_volunteer", "stat_volunteer"], ["total_komunitas", "stat_komunitas"]
         ];
-        map.forEach(([k, fallback], i) => {
+        map.forEach(([k, kunci], i) => {
           const el = document.querySelectorAll("#stats-grid b")[i];
-          if (el && stats[k] > 0) el.dataset.hitung = stats[k] + fallback;
+          const dasar = SB.teks ? Number(SB.teks(kunci)) || 0 : 0;
+          if (el && stats[k] > 0) el.dataset.hitung = stats[k] + dasar;
         });
       }
     } catch (e) { /* pakai angka default */ }

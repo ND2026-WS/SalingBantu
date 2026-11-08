@@ -10,15 +10,20 @@
 
   const MENU = [
     { id: "statistik", label: "Statistik", icon: "chart" },
+    { id: "realtime", label: "Realtime", icon: "trending" },
     { id: "pengguna", label: "Manajemen Pengguna", icon: "users" },
     { id: "pengajuan", label: "Manajemen Pengajuan", icon: "file" },
     { id: "donasi", label: "Manajemen Donasi", icon: "credit" },
     { id: "konten", label: "Manajemen Konten", icon: "megaphone" },
-    { id: "laporan", label: "Laporan", icon: "clipboard" }
+    { id: "isi", label: "Isi Website", icon: "book" },
+    { id: "laporan", label: "Laporan", icon: "clipboard" },
+    { id: "pengaturan", label: "Pengaturan", icon: "settings" }
   ];
 
+  const BOLEH_KELOLA = ["admin", "pengelola"];
+
   let user = null;
-  let cache = { users: [], requests: [], donations: [] };
+  let cache = { users: [], requests: [], donations: [], stories: [] };
 
   function head(judul, sub, tombolHtml) {
     return '<div class="dash-head"><div><h2>' + judul + "</h2><p>" + sub + "</p></div>" + (tombolHtml || "") + "</div>";
@@ -130,6 +135,250 @@
     }
   }
 
+  /* ================= REALTIME (live dashboard) ================= */
+  let rtStop = null;      /* pembersih langganan realtime aktif */
+  let rtJumlah = 0;       /* jumlah event realtime diterima */
+  let rtTerakhir = null;  /* info event terakhir */
+
+  function hentikanRealtime() {
+    if (typeof rtStop === "function") { try { rtStop(); } catch (e) { /* abaikan */ } }
+    rtStop = null;
+  }
+
+  async function vRealtime() {
+    const html =
+      head("Dashboard Realtime", "Pantau aktivitas platform secara langsung: donasi masuk, pengajuan baru, dan aksi pengelola — tanpa perlu memuat ulang halaman.",
+        '<button class="btn btn-ghost" id="rt-refresh">' + S.icon("clock", 15) + " Segarkan Sekarang</button>") +
+      '<div class="panel" style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">' +
+      '<span class="live-dot" id="rt-dot"></span>' +
+      '<div style="flex:1;min-width:220px"><b style="font-size:14.5px">Pemantauan Langsung</b><br>' +
+      '<small style="color:var(--abu)" id="rt-status">Menyiapkan koneksi realtime...</small></div>' +
+      '<div style="text-align:right"><small style="color:var(--abu)">Diperbarui</small><br><b id="rt-waktu" style="font-size:13.5px">—</b></div>' +
+      '<div style="text-align:right"><small style="color:var(--abu)">Event diterima</small><br><b id="rt-evt" style="font-size:13.5px">0</b></div>' +
+      "</div>" +
+      '<div class="kpi-grid" style="grid-template-columns:repeat(3,1fr)" id="rt-kpi1"></div>' +
+      '<div class="kpi-grid" style="grid-template-columns:repeat(3,1fr)" id="rt-kpi2"></div>' +
+      '<div class="grid grid-2">' +
+      '<div class="panel"><h3>Aktivitas Terbaru <span class="badge st-hijau" style="margin-left:6px">LIVE</span></h3><div id="rt-feed" style="max-height:420px;overflow:auto"></div></div>' +
+      '<div class="panel"><h3>Donasi 7 Hari Terakhir</h3><div class="chart-box"><canvas class="sb-chart" id="rt-chart"></canvas></div>' +
+      '<div id="rt-tunggu" style="margin-top:12px"></div></div>' +
+      "</div>";
+    mainEl().innerHTML = html;
+    document.getElementById("rt-refresh").addEventListener("click", () => segarkanLive(true));
+
+    await segarkanLive(true);
+    pasangRealtime();
+  }
+
+  function rtKpi(ic, warna, nilai, label) {
+    return '<div class="kpi"><span class="kpi-ic" style="background:' + warna + ';display:grid">' + S.icon(ic, 18) + "</span><b>" + nilai + "</b><span>" + label + "</span></div>";
+  }
+
+  async function segarkanLive(manual) {
+    if (!document.getElementById("rt-kpi1")) return; /* sudah pindah menu */
+    try {
+      const [st, dons, reqs, users, audit] = await Promise.all([
+        S.store.adminStats(),
+        S.store.listDonations({ publikOnly: false }).catch(() => []),
+        S.store.listRequests({ publikOnly: false }).catch(() => []),
+        S.store.listUsers().catch(() => []),
+        S.store.listAudit().catch(() => [])
+      ]);
+      if (!document.getElementById("rt-kpi1")) return;
+
+      const awalHari = new Date(); awalHari.setHours(0, 0, 0, 0);
+      const dari = (iso) => iso && new Date(iso).getTime() >= awalHari.getTime();
+      const donHariIni = dons.filter((d) => dari(d.tanggal));
+      const sumHariIni = donHariIni.reduce((a, b) => a + (Number(b.jumlah) || 0), 0);
+      const reqHariIni = reqs.filter((r) => dari(r.tanggal));
+      const usrHariIni = users.filter((u) => dari(u.dibuat || u.tanggal));
+
+      document.getElementById("rt-kpi1").innerHTML =
+        rtKpi("credit", "var(--hijau)", S.rupiah(sumHariIni), "Donasi masuk hari ini (" + donHariIni.length + " transaksi)") +
+        rtKpi("file", "var(--biru)", reqHariIni.length, "Pengajuan baru hari ini") +
+        rtKpi("users", "var(--teal)", usrHariIni.length, "Pengguna baru hari ini");
+      document.getElementById("rt-kpi2").innerHTML =
+        rtKpi("clock", "var(--oranye)", st.donasiMenunggu, "Donasi menunggu konfirmasi") +
+        rtKpi("shield", "var(--ungu)", st.pengajuanMenunggu, "Pengajuan menunggu verifikasi") +
+        rtKpi("heart", "var(--merah)", S.rupiah(st.totalDanaTerkumpul), "Total dana terkumpul");
+
+      /* --- feed aktivitas terbaru --- */
+      const ambilWaktu = (x) => x.tanggal || x.dibuat || x.created_at || null;
+      const feed = []
+        .concat(dons.slice(0, 10).map((d) => ({
+          t: ambilWaktu(d), ic: "credit", k: "k-hijau",
+          judul: (d.anonim ? "Donasi anonim" : S.esc(d.donorNama || "Donatur")) + " · " + S.rupiah(d.jumlah),
+          sub: S.esc(d.kuitansi) + " — " + (d.status === "terkonfirmasi" ? "terkonfirmasi" : d.status === "ditolak" ? "ditolak" : "menunggu konfirmasi")
+        })))
+        .concat(reqs.slice(0, 8).map((r) => ({
+          t: ambilWaktu(r), ic: "file", k: "k-biru",
+          judul: S.esc(r.code) + " — " + S.esc((r.judul || "").slice(0, 46)),
+          sub: S.esc(r.namaPenerima || "") + " · " + S.esc((S.KATEGORI[r.kategori] || {}).label || r.kategori)
+        })))
+        .concat((audit || []).slice(0, 8).map((a) => ({
+          t: ambilWaktu(a), ic: "shield", k: "k-abu",
+          judul: S.esc(a.aksi) + " · " + S.esc(a.entitas || ""),
+          sub: "oleh " + S.esc(a.aktor || "-")
+        })))
+        .filter((x) => x.t)
+        .sort((a, b) => new Date(b.t) - new Date(a.t))
+        .slice(0, 16);
+      const batasBaru = Date.now() - 120000; /* 2 menit terakhir = "baru" */
+      document.getElementById("rt-feed").innerHTML = feed.length
+        ? feed.map((x) =>
+          '<div class="feed-item' + (new Date(x.t).getTime() >= batasBaru ? " baru" : "") + '">' +
+          '<span class="notif-ic"><span class="k-ic ' + x.k + '">' + S.icon(x.ic, 13) + "</span></span>" +
+          "<div style='flex:1'><b>" + x.judul + "</b><p>" + x.sub + "</p></div>" +
+          "<time>" + S.waktuLalu(x.t) + "</time></div>").join("")
+        : '<p style="font-size:13px;color:var(--abu)">Belum ada aktivitas.</p>';
+
+      /* --- grafik 7 hari + daftar tunggu --- */
+      const hari = [];
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date(); d.setDate(d.getDate() - i); d.setHours(0, 0, 0, 0);
+        hari.push({ awal: d.getTime(), label: d.toLocaleDateString("id-ID", { weekday: "short", day: "numeric" }) });
+      }
+      const nilaiHari = hari.map((h) =>
+        dons.filter((d) => { const t = new Date(d.tanggal).getTime(); return t >= h.awal && t < h.awal + 86400000; })
+          .reduce((a, b) => a + (Number(b.jumlah) || 0), 0));
+      drawBar(document.getElementById("rt-chart"), hari.map((h) => h.label), nilaiHari, "#16a34a");
+
+      const tungguDon = dons.filter((d) => d.status === "menunggu_konfirmasi").slice(0, 4);
+      const tungguReq = reqs.filter((r) => r.status === "menunggu_verifikasi").slice(0, 4);
+      document.getElementById("rt-tunggu").innerHTML =
+        '<b style="font-size:13.5px">Menunggu tindakan Anda</b>' +
+        (tungguDon.length || tungguReq.length
+          ? '<div style="margin-top:8px">' +
+            tungguDon.map((d) => '<div class="feed-item"><span class="notif-ic"><span class="k-ic k-oranye">' + S.icon("credit", 13) + "</span></span><div style='flex:1'><b>Verifikasi " + S.esc(d.kuitansi) + "</b><p>" + S.rupiah(d.jumlah) + "</p></div></div>").join("") +
+            tungguReq.map((r) => '<div class="feed-item"><span class="notif-ic"><span class="k-ic k-ungu">' + S.icon("file", 13) + "</span></span><div style='flex:1'><b>Verifikasi " + S.esc(r.code) + "</b><p>" + S.esc((r.judul || "").slice(0, 40)) + "</p></div></div>").join("") +
+            "</div>"
+          : '<p style="font-size:12.5px;color:var(--abu);margin-top:6px">Tidak ada antrean. Semua sudah diproses.</p>');
+
+      document.getElementById("rt-waktu").textContent = new Date().toLocaleTimeString("id-ID");
+      document.getElementById("rt-evt").textContent = rtJumlah;
+      if (rtTerakhir) {
+        const st2 = document.getElementById("rt-status");
+        if (st2 && S.MODE === "supabase") st2.textContent = "Terhubung — perubahan terakhir: " + rtTerakhir.tabel + " (" + rtTerakhir.aksi + ")";
+      }
+    } catch (e) {
+      const st2 = document.getElementById("rt-status");
+      if (st2) st2.textContent = "Gagal memuat data: " + e.message;
+    }
+  }
+
+  let rtTimer = null;
+  function pasangRealtime() {
+    hentikanRealtime();
+    let modeLabel = "";
+    if (S.MODE === "supabase" && S.store.client && S.store.client.channel) {
+      try {
+        const ch = S.store.client
+          .channel("sb-admin-rt-" + Date.now())
+          .on("postgres_changes", { event: "*", schema: "public" }, (pay) => {
+            rtJumlah++;
+            rtTerakhir = { tabel: (pay && pay.table) || "?", aksi: (pay && pay.eventType || pay && pay.type) || "?" };
+            if (rtTerakhir.tabel === "donations" && rtTerakhir.aksi === "INSERT") {
+              S.toast("Donasi baru masuk! Cek menu Donasi untuk konfirmasi.", "sukses");
+              SB.refreshNotif && SB.refreshNotif();
+            }
+            if (rtTerakhir.tabel === "assistance_requests" && rtTerakhir.aksi === "INSERT") {
+              S.toast("Pengajuan baru masuk! Cek menu Pengajuan.", "info");
+            }
+            jadwalkanLive();
+          })
+          .subscribe((status) => {
+            const el = document.getElementById("rt-status");
+            if (!el) return;
+            if (status === "SUBSCRIBED") el.textContent = "Realtime Supabase aktif — semua perubahan tabel langsung tampil di sini.";
+            else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") el.textContent = "Kanal realtime terputus (" + status + "). Dicoba ulang otomatis... Fallback pemantauan berkala aktif.";
+            else el.textContent = "Menyambungkan kanal realtime (" + status + ")...";
+          });
+        rtStop = () => { try { S.store.client.removeChannel(ch); } catch (e) { /* abaikan */ } };
+        modeLabel = "supabase";
+      } catch (e) { /* jatuh ke fallback */ }
+    }
+    if (!rtStop) {
+      rtTimer = setInterval(() => segarkanLive(false), 5000);
+      const onStorage = (e) => { if (!e.key || e.key === "saling_bantu_demo_v1") jadwalkanLive(); };
+      window.addEventListener("storage", onStorage);
+      rtStop = () => { clearInterval(rtTimer); window.removeEventListener("storage", onStorage); };
+      modeLabel = "demo";
+      const el = document.getElementById("rt-status");
+      if (el) el.textContent = "Mode Demo — pemantauan berkala tiap 5 detik (jika realtime Supabase aktif, pembaruan instan otomatis digunakan).";
+    }
+    return modeLabel;
+  }
+
+  let rtJadwal = null;
+  function jadwalkanLive() {
+    clearTimeout(rtJadwal);
+    rtJadwal = setTimeout(() => segarkanLive(false), 700);
+  }
+
+  /* ================= ISI WEBSITE (CMS) ================= */
+  async function vIsiWebsite() {
+    if (!SB.KONTEN_DEF) { mainEl().innerHTML = head("Isi Website", "") + '<div class="alert alert-danger">File js/konten.js tidak termuat.</div>'; return; }
+    await SB.muatKonten(true);
+    const simpanGlobal = S.MODE === "supabase";
+    let html = head("Isi Website", "Edit seluruh teks publik website: identitas, beranda, statistik, ajakan, footer, kontak, dan rekening donasi.",
+      '<button class="btn btn-primary" id="kw-simpan">' + S.icon("check", 15) + " Simpan Semua Perubahan</button>");
+    html += '<div class="alert alert-info">' + S.icon("bell", 16) +
+      "<span>Perubahan disimpan " + (simpanGlobal ? "<b>global di Supabase</b> (tabel <code>site_content</code>) dan langsung berlaku di semua perangkat" : "di browser ini (Mode Demo)") +
+      ". Setelah disimpan, teks baru langsung tampil di beranda, header, footer, dan halaman lain tanpa perlu mengedit kode.</span></div>";
+
+    SB.KONTEN_DEF.forEach((g) => {
+      html += '<div class="panel" style="margin-bottom:16px"><h3>' + S.icon(g.ikon, 16) + " " + g.judul + "</h3>" +
+        '<p style="font-size:12.5px;color:var(--abu);margin:-4px 0 12px">' + g.desk + "</p>" +
+        '<div class="form-row">' +
+        g.field.map((f) => {
+          const nilai = SB.teks(f.key);
+          const inp = f.tipe === "textarea"
+            ? '<textarea id="kw-' + f.key + '" rows="2">' + S.esc(nilai) + "</textarea>"
+            : '<input type="' + (f.tipe === "angka" ? "number" : "text") + '" id="kw-' + f.key + '" value="' + S.esc(nilai) + '"/>';
+          return '<div class="field" style="' + (f.tipe === "textarea" ? "grid-column:1/-1" : "") + '"><label>' + S.esc(f.label) + '</label>' + inp + "</div>";
+        }).join("") +
+        "</div>" +
+        '<div style="margin-top:10px"><button class="btn btn-ghost btn-sm" data-kw-reset="' + g.id + '">' + S.icon("x", 13) + " Kembalikan Default Grup Ini</button></div>" +
+        "</div>";
+    });
+
+    mainEl().innerHTML = html;
+
+    document.getElementById("kw-simpan").addEventListener("click", async () => {
+      const patch = {};
+      let namaKosong = false;
+      SB.KONTEN_DEF.forEach((g) => g.field.forEach((f) => {
+        const el = document.getElementById("kw-" + f.key);
+        if (!el) return;
+        let v = el.value;
+        if (f.tipe === "angka") v = String(Number(v) || 0);
+        patch[f.key] = v.trim();
+        if (f.key === "app_nama" && !patch[f.key]) namaKosong = true;
+      }));
+      if (namaKosong) { S.toast("Nama aplikasi tidak boleh kosong.", "gagal"); return; }
+      try {
+        await S.store.setContent(patch);
+        await SB.muatKonten(true);
+        SB.terapkanKonten();
+        if (SB.renderKerangka) SB.renderKerangka();
+        S.toast("Isi website tersimpan dan langsung tampil di seluruh halaman.", "sukses");
+      } catch (e) { S.toast("Gagal menyimpan: " + e.message, "gagal"); }
+    });
+
+    mainEl().querySelectorAll("[data-kw-reset]").forEach((b) =>
+      b.addEventListener("click", async () => {
+        const g = SB.KONTEN_DEF.find((x) => x.id === b.dataset.kwReset);
+        if (!g) return;
+        if (!(await S.konfirmasi("Kembalikan semua teks pada grup \"" + g.judul + "\" ke nilai bawaan?", "Ya, kembalikan"))) return;
+        try {
+          await S.store.resetKonten(g.field.map((f) => f.key));
+          await SB.muatKonten(true);
+          S.toast("Grup \"" + g.judul + "\" dikembalikan ke default.", "sukses");
+          vIsiWebsite();
+        } catch (e) { S.toast("Gagal: " + e.message, "gagal"); }
+      }));
+  }
+
   /* ================= PENGGUNA ================= */
   async function vPengguna() {
     cache.users = await S.store.listUsers();
@@ -140,12 +389,13 @@
         "<tr><td><div style='display:flex;gap:9px;align-items:center'>" + S.avatar(u.nama, 30) +
         "<div><b>" + S.esc(u.nama) + "</b><br><small style='color:var(--abu)'>" + S.esc(u.email) + "</small></div></div></td>" +
         '<td><select data-role="' + u.id + '" style="width:auto;padding:6px 10px;font-size:12.5px">' +
-        ["admin", "penerima", "donatur", "volunteer"].map((r) => '<option value="' + r + '"' + (u.peran === r ? " selected" : "") + ">" + r + "</option>").join("") +
+        ["admin", "pengelola", "penerima", "donatur", "volunteer"].map((r) => '<option value="' + r + '"' + (u.peran === r ? " selected" : "") + ">" + r + "</option>").join("") +
         "</select></td>" +
         "<td>" + S.esc(u.kota || "-") + "</td>" +
         "<td>" + (u.terverifikasi ? '<span class="badge st-hijau">Terverifikasi</span>' : '<span class="badge st-abu">Belum</span>') + " " +
         (u.aktif === false ? '<span class="badge st-merah">Nonaktif</span>' : "") + "</td>" +
         '<td><div class="td-actions">' +
+        '<button class="btn btn-ghost" data-edit-user="' + u.id + '">Edit</button>' +
         '<button class="btn btn-ghost" data-verif="' + u.id + '">' + (u.terverifikasi ? "Batal Verif." : "Verifikasi") + "</button>" +
         '<button class="btn btn-ghost" data-aktif="' + u.id + '">' + (u.aktif === false ? "Aktifkan" : "Nonaktifkan") + "</button>" +
         "</div></td></tr>").join("") +
@@ -170,6 +420,44 @@
         try { await S.store.setUserAktif(u.id, u.aktif === false); S.toast("Status akun diperbarui.", "sukses"); vPengguna(); }
         catch (e) { S.toast(e.message, "gagal"); }
       }));
+    mainEl().querySelectorAll("[data-edit-user]").forEach((b) =>
+      b.addEventListener("click", () => modalEditUser(b.dataset.editUser)));
+  }
+
+  function modalEditUser(id) {
+    const u = cache.users.find((x) => x.id === id);
+    if (!u) return;
+    const sendiri = user && u.id === user.id;
+    const peranOpts = ["admin", "pengelola", "penerima", "donatur", "volunteer"].map((r) =>
+      '<option value="' + r + '"' + (u.peran === r ? " selected" : "") + ">" + r + "</option>").join("");
+    S.modal({
+      judul: "Edit Pengguna — " + u.nama,
+      lebar: 560,
+      isi:
+        '<div class="form-row">' +
+        '<div class="field"><label>Nama Lengkap</label><input type="text" id="eu-nama" value="' + S.esc(u.nama) + '" required/></div>' +
+        '<div class="field"><label>Telepon</label><input type="text" id="eu-telp" value="' + S.esc(u.telepon || "") + '"/></div>' +
+        '<div class="field"><label>Kota</label><input type="text" id="eu-kota" value="' + S.esc(u.kota || "") + '"/></div>' +
+        '<div class="field"><label>Peran</label><select id="eu-peran"' + (sendiri ? " disabled" : "") + ">" + peranOpts + "</select>" +
+        (sendiri ? '<small style="color:var(--abu);font-size:12px">Peran akun sendiri tidak dapat diubah dari sini.</small>' : "") + "</div>" +
+        '<div class="field" style="grid-column:1/-1"><label>Bio</label><textarea id="eu-bio" rows="3">' + S.esc(u.bio || "") + "</textarea></div>" +
+        "</div>",
+      footer: '<button class="btn btn-ghost" onclick="SB.modalClose()">Batal</button><button class="btn btn-primary" id="eu-simpan">Simpan Perubahan</button>'
+    });
+    document.getElementById("eu-simpan").addEventListener("click", async () => {
+      const patch = {
+        nama: document.getElementById("eu-nama").value.trim(),
+        telepon: document.getElementById("eu-telp").value.trim(),
+        kota: document.getElementById("eu-kota").value.trim(),
+        bio: document.getElementById("eu-bio").value.trim()
+      };
+      if (!patch.nama) { S.toast("Nama tidak boleh kosong.", "gagal"); return; }
+      if (!sendiri) patch.peran = document.getElementById("eu-peran").value;
+      try {
+        await S.store.updateUserAdmin(u.id, patch);
+        S.modalClose(); S.toast("Perubahan pengguna tersimpan.", "sukses"); vPengguna();
+      } catch (e) { S.toast(e.message, "gagal"); }
+    });
   }
 
   /* ================= PENGAJUAN ================= */
@@ -197,7 +485,8 @@
           "<td>" + S.esc((S.KATEGORI[r.kategori] || {}).label || r.kategori) + "</td>" +
           "<td>" + S.badgeStatus(r.status) + "</td>" +
           "<td>" + S.rupiah(r.terkumpul) + "<br><small style='color:var(--abu)'>/" + S.rupiah(r.kebutuhan) + "</small></td>" +
-          '<td><div class="td-actions"><button class="btn btn-ghost" data-detail="' + r.id + '">Detail</button>' + (tombol || '<span style="font-size:12px;color:var(--abu)">Selesai</span>') + "</div></td></tr>";
+          '<td><div class="td-actions"><button class="btn btn-ghost" data-detail="' + r.id + '">Detail</button>' +
+          '<button class="btn btn-ghost" data-edit-req="' + r.id + '">Edit</button>' + (tombol || '<span style="font-size:12px;color:var(--abu)">Selesai</span>') + "</div></td></tr>";
       }).join("") +
       "</tbody></table></div>";
     mainEl().innerHTML = html;
@@ -209,6 +498,8 @@
         const [id, st] = b.dataset.status.split("|");
         ubahStatus(id, st);
       }));
+    mainEl().querySelectorAll("[data-edit-req]").forEach((b) =>
+      b.addEventListener("click", () => modalEditPengajuan(b.dataset.editReq)));
   }
 
   function modalAdminPengajuan(id) {
@@ -228,7 +519,11 @@
         "<dt>Lampiran</dt><dd>" + (r.foto || r.dokumen ? "Ada (foto/dokumen)" : "Tidak ada") + "</dd></dl>" +
         "<p style='font-size:13.5px;margin-top:12px;color:#334155'>" + S.esc(r.deskripsi) + "</p>" +
         '<div style="margin-top:14px">' + S.timeline(r.status) + "</div>",
-      footer: '<button class="btn btn-ghost" onclick="SB.modalClose()">Tutup</button>'
+      footer: '<button class="btn btn-ghost" onclick="SB.modalClose()">Tutup</button><button class="btn btn-blue" id="mp-edit">Edit Data</button>'
+    });
+    document.getElementById("mp-edit").addEventListener("click", () => {
+      S.modalClose();
+      modalEditPengajuan(id);
     });
   }
 
@@ -248,6 +543,57 @@
       SB.refreshNotif && SB.refreshNotif();
       vPengajuan();
     } catch (e) { S.toast(e.message, "gagal"); }
+  }
+
+  function modalEditPengajuan(id) {
+    const r = cache.requests.find((x) => x.id === id);
+    if (!r) return;
+    const katOpts = Object.entries(S.KATEGORI).map(([k, m]) =>
+      '<option value="' + k + '"' + (r.kategori === k ? " selected" : "") + ">" + m.label + "</option>").join("");
+    const subOpts = (S.KATEGORI[r.kategori] || {}).sub || [];
+    S.modal({
+      judul: "Edit Pengajuan — " + r.code,
+      lebar: 620,
+      isi:
+        '<div class="form-row">' +
+        '<div class="field" style="grid-column:1/-1"><label>Judul Pengajuan</label><input type="text" id="er-judul" value="' + S.esc(r.judul) + '" required/></div>' +
+        '<div class="field"><label>Kategori</label><select id="er-kategori">' + katOpts + "</select></div>" +
+        '<div class="field"><label>Sub-kategori</label><select id="er-sub">' + subOpts.map((s) => '<option value="' + s + '"' + (r.sub === s ? " selected" : "") + ">" + s + "</option>").join("") + "</select></div>" +
+        '<div class="field"><label>Nama Penerima</label><input type="text" id="er-penerima" value="' + S.esc(r.namaPenerima || "") + '"/></div>' +
+        '<div class="field"><label>Kebutuhan (Rp)</label><input type="number" id="er-kebutuhan" min="0" step="10000" value="' + Number(r.kebutuhan || 0) + '"/></div>' +
+        '<div class="field"><label>Kota</label><input type="text" id="er-kota" value="' + S.esc(r.kota || "") + '"/></div>' +
+        '<div class="field"><label>Provinsi</label><input type="text" id="er-provinsi" value="' + S.esc(r.provinsi || "") + '"/></div>' +
+        '<div class="field" style="grid-column:1/-1"><label>Kontak (rahasia dari publik)</label><input type="text" id="er-kontak" value="' + S.esc(r.kontak || "") + '"/></div>' +
+        '<div class="field" style="grid-column:1/-1"><label>Deskripsi</label><textarea id="er-deskripsi" rows="4">' + S.esc(r.deskripsi || "") + "</textarea></div>" +
+        '<div class="field" style="grid-column:1/-1"><label style="display:flex;gap:8px;align-items:center;font-weight:600"><input type="checkbox" id="er-publik"' + (r.publik === false ? "" : " checked") + ' style="width:auto"/> Tampilkan di halaman publik (Cari Bantuan)</label></div>' +
+        "</div>" +
+        '<p style="font-size:12.5px;color:var(--abu);margin-top:8px">Perubahan data tidak mengubah status verifikasi, tetapi tercatat di jejak audit.</p>',
+      footer: '<button class="btn btn-ghost" onclick="SB.modalClose()">Batal</button><button class="btn btn-primary" id="er-simpan">Simpan Perubahan</button>'
+    });
+    document.getElementById("er-kategori").addEventListener("change", (e) => {
+      const subs = (S.KATEGORI[e.target.value] || {}).sub || [];
+      document.getElementById("er-sub").innerHTML = subs.map((s) => '<option value="' + s + '">' + s + "</option>").join("");
+    });
+    document.getElementById("er-simpan").addEventListener("click", async () => {
+      const judul = document.getElementById("er-judul").value.trim();
+      if (!judul) { S.toast("Judul wajib diisi.", "gagal"); return; }
+      const patch = {
+        judul,
+        kategori: document.getElementById("er-kategori").value,
+        sub: document.getElementById("er-sub").value,
+        namaPenerima: document.getElementById("er-penerima").value.trim(),
+        kebutuhan: Number(document.getElementById("er-kebutuhan").value) || 0,
+        kota: document.getElementById("er-kota").value.trim(),
+        provinsi: document.getElementById("er-provinsi").value.trim(),
+        kontak: document.getElementById("er-kontak").value.trim(),
+        deskripsi: document.getElementById("er-deskripsi").value.trim(),
+        publik: document.getElementById("er-publik").checked
+      };
+      try {
+        await S.store.updateRequestAdmin(r.id, patch);
+        S.modalClose(); S.toast("Data pengajuan diperbarui.", "sukses"); vPengajuan();
+      } catch (e) { S.toast(e.message, "gagal"); }
+    });
   }
 
   /* ================= DONASI ================= */
@@ -274,7 +620,8 @@
           '<td><div class="td-actions">' +
           (d.status === "menunggu_konfirmasi"
             ? '<button class="btn btn-primary" data-verdon="' + d.id + '|1">Konfirmasi</button><button class="btn btn-danger" data-verdon="' + d.id + '|0">Tolak</button>'
-            : "-") +
+            : "") +
+          '<button class="btn btn-ghost" data-edit-don="' + d.id + '">Edit</button>' +
           "</div></td></tr>";
       }).join("") : '<tr><td colspan="6" style="color:var(--abu)">Belum ada donasi.</td></tr>') +
       "</tbody></table></div></div>";
@@ -319,6 +666,9 @@
         vDonasi();
       }));
 
+    mainEl().querySelectorAll("[data-edit-don]").forEach((b) =>
+      b.addEventListener("click", () => modalEditDonasi(b.dataset.editDon)));
+
     document.getElementById("form-dist").addEventListener("submit", async (e) => {
       e.preventDefault();
       const requestId = document.getElementById("dist-req").value;
@@ -335,9 +685,50 @@
     });
   }
 
+  function modalEditDonasi(id) {
+    const d = cache.donations.find((x) => x.id === id);
+    if (!d) return;
+    const jenisOpts = Object.entries(S.JENIS_BANTUAN).map(([k, m]) =>
+      '<option value="' + k + '"' + (d.jenis === k ? " selected" : "") + ">" + m.label + "</option>").join("");
+    const statusOpts = [["menunggu_konfirmasi", "Menunggu Konfirmasi"], ["terkonfirmasi", "Terkonfirmasi"], ["ditolak", "Ditolak"]].map(([k, l]) =>
+      '<option value="' + k + '"' + (d.status === k ? " selected" : "") + ">" + l + "</option>").join("");
+    S.modal({
+      judul: "Edit Donasi — " + d.kuitansi,
+      lebar: 560,
+      isi:
+        '<div class="form-row">' +
+        '<div class="field"><label>Nama Donatur</label><input type="text" id="ed-nama" value="' + S.esc(d.donorNama || "") + '"/></div>' +
+        '<div class="field"><label>Anonim</label><label style="display:flex;gap:8px;align-items:center;font-weight:600"><input type="checkbox" id="ed-anonim"' + (d.anonim ? " checked" : "") + ' style="width:auto"/> Sembunyikan nama</label></div>' +
+        '<div class="field"><label>Jenis Bantuan</label><select id="ed-jenis">' + jenisOpts + "</select></div>" +
+        '<div class="field"><label>Nominal (Rp)</label><input type="number" id="ed-jumlah" min="0" step="10000" value="' + Number(d.jumlah || 0) + '"/></div>' +
+        '<div class="field" style="grid-column:1/-1"><label>Rincian Barang (untuk jenis barang)</label><input type="text" id="ed-barang" value="' + S.esc(d.barang || "") + '"/></div>' +
+        '<div class="field" style="grid-column:1/-1"><label>Pesan Donatur</label><textarea id="ed-pesan" rows="2">' + S.esc(d.pesan || "") + "</textarea></div>" +
+        '<div class="field"><label>Status Donasi</label><select id="ed-status">' + statusOpts + "</select></div>" +
+        "</div>" +
+        '<p style="font-size:12.5px;color:var(--abu);margin-top:8px">Mengubah nominal donasi finansial yang sudah terkonfirmasi akan ikut menyesuaikan dana terkumpul proyek (mode Demo). Di Supabase, total mengikuti trigger database.</p>',
+      footer: '<button class="btn btn-ghost" onclick="SB.modalClose()">Batal</button><button class="btn btn-primary" id="ed-simpan">Simpan Perubahan</button>'
+    });
+    document.getElementById("ed-simpan").addEventListener("click", async () => {
+      const patch = {
+        donorNama: document.getElementById("ed-nama").value.trim() || "Hamba Allah",
+        anonim: document.getElementById("ed-anonim").checked,
+        jenis: document.getElementById("ed-jenis").value,
+        jumlah: Number(document.getElementById("ed-jumlah").value) || 0,
+        barang: document.getElementById("ed-barang").value.trim(),
+        pesan: document.getElementById("ed-pesan").value.trim(),
+        status: document.getElementById("ed-status").value
+      };
+      try {
+        await S.store.updateDonationAdmin(d.id, patch);
+        S.modalClose(); S.toast("Data donasi diperbarui.", "sukses"); vDonasi();
+      } catch (e) { S.toast(e.message, "gagal"); }
+    });
+  }
+
   /* ================= KONTEN ================= */
   async function vKonten() {
     const stories = await S.store.listStories({ publikOnly: false });
+    cache.stories = stories;
     let html = head("Manajemen Konten", "Moderasi cerita, kelola pengumuman, dan pantau banner kecil.");
     html += '<div class="panel"><h3>Moderasi Cerita (' + stories.length + ")</h3>" +
       '<div class="table-wrap"><table class="sb"><thead><tr><th>Judul</th><th>Penulis</th><th>Status</th><th>Aksi</th></tr></thead><tbody>' +
@@ -346,6 +737,7 @@
         "<td>" + S.esc(s.penulisNama) + "</td>" +
         "<td>" + (s.status === "disetujui" ? '<span class="badge st-hijau">Disetujui</span>' : s.status === "ditolak" ? '<span class="badge st-merah">Ditolak</span>' : '<span class="badge st-oranye">Menunggu Review</span>') + "</td>" +
         '<td><div class="td-actions">' +
+        '<button class="btn btn-ghost" data-edit-story="' + s.id + '">Edit</button>' +
         (s.status !== "disetujui" ? '<button class="btn btn-primary" data-mod="' + s.id + '|1">Setujui</button>' : "") +
         (s.status !== "ditolak" ? '<button class="btn btn-danger" data-mod="' + s.id + '|0">Tolak</button>' : "") +
         "</div></td></tr>").join("") +
@@ -368,6 +760,9 @@
         catch (e) { S.toast(e.message, "gagal"); }
       }));
 
+    mainEl().querySelectorAll("[data-edit-story]").forEach((b) =>
+      b.addEventListener("click", () => modalEditCerita(b.dataset.editStory)));
+
     document.getElementById("form-pengumuman").addEventListener("submit", (e) => {
       e.preventDefault();
       const judul = document.getElementById("an-judul").value.trim();
@@ -386,6 +781,7 @@
         ? arr.map((a, i) =>
           '<div class="notif-row"><span class="notif-ic">' + S.icon("megaphone", 15) + "</span>" +
           "<div style='flex:1'><b>" + S.esc(a.judul) + "</b><p>" + S.tanggalWaktu(a.tanggal) + "</p></div>" +
+          '<button class="btn btn-ghost btn-sm" data-edit-an="' + i + '">' + S.icon("tool", 12) + "</button>" +
           '<button class="btn btn-ghost btn-sm" data-hapus-an="' + i + '">' + S.icon("x", 12) + "</button></div>").join("")
         : '<p style="font-size:13px;color:var(--abu)">Belum ada pengumuman.</p>';
       document.querySelectorAll("[data-hapus-an]").forEach((b) =>
@@ -395,10 +791,128 @@
           localStorage.setItem("sb_pengumuman", JSON.stringify(arr));
           renderPengumuman();
         }));
+      document.querySelectorAll("[data-edit-an]").forEach((b) =>
+        b.addEventListener("click", () => {
+          const arr = bacaPengumuman();
+          const i = Number(b.dataset.editAn);
+          if (!arr[i]) return;
+          S.modal({
+            judul: "Edit Pengumuman",
+            isi: '<div class="field"><label>Judul Pengumuman</label><input type="text" id="an-edit-judul" value="' + S.esc(arr[i].judul) + '"/></div>',
+            footer: '<button class="btn btn-ghost" onclick="SB.modalClose()">Batal</button><button class="btn btn-primary" id="an-edit-simpan">Simpan</button>'
+          });
+          document.getElementById("an-edit-simpan").addEventListener("click", () => {
+            const v = document.getElementById("an-edit-judul").value.trim();
+            if (v.length < 5) { S.toast("Judul pengumuman terlalu pendek.", "gagal"); return; }
+            arr[i].judul = v;
+            localStorage.setItem("sb_pengumuman", JSON.stringify(arr));
+            S.modalClose(); S.toast("Pengumuman diperbarui.", "sukses"); renderPengumuman();
+          });
+        }));
     }
     function bacaPengumuman() {
       try { return JSON.parse(localStorage.getItem("sb_pengumuman") || "[]"); } catch (e) { return []; }
     }
+  }
+
+  function modalEditCerita(id) {
+    const s = cache.stories.find((x) => x.id === id);
+    if (!s) return;
+    const katOpts = '<option value="">Tanpa kategori</option>' + Object.entries(S.KATEGORI).map(([k, m]) =>
+      '<option value="' + k + '"' + (s.kategori === k ? " selected" : "") + ">" + m.label + "</option>").join("");
+    S.modal({
+      judul: "Edit Cerita",
+      lebar: 600,
+      isi:
+        '<div class="field"><label>Judul</label><input type="text" id="es-judul" value="' + S.esc(s.judul) + '" required/></div>' +
+        '<div class="field"><label>Kategori (opsional)</label><select id="es-kategori">' + katOpts + "</select></div>" +
+        '<div class="field"><label>Isi Cerita</label><textarea id="es-isi" rows="6">' + S.esc(s.isi) + "</textarea></div>" +
+        '<p style="font-size:12.5px;color:var(--abu);margin-top:8px">Identitas penulis tidak diubah. Perubahan tercatat di jejak audit.</p>',
+      footer: '<button class="btn btn-ghost" onclick="SB.modalClose()">Batal</button><button class="btn btn-primary" id="es-simpan">Simpan Perubahan</button>'
+    });
+    document.getElementById("es-simpan").addEventListener("click", async () => {
+      const judul = document.getElementById("es-judul").value.trim();
+      const isi = document.getElementById("es-isi").value.trim();
+      if (!judul || !isi) { S.toast("Judul dan isi cerita wajib diisi.", "gagal"); return; }
+      try {
+        await S.store.updateStoryAdmin(s.id, { judul, isi, kategori: document.getElementById("es-kategori").value });
+        S.modalClose(); S.toast("Cerita diperbarui.", "sukses"); vKonten();
+      } catch (e) { S.toast(e.message, "gagal"); }
+    });
+  }
+
+  /* ================= PENGATURAN ================= */
+  async function vPengaturan() {
+    const cfg = window.SB_CONFIG || {};
+    const mode = S.MODE === "supabase" ? "supabase" : "demo";
+    let html = head("Pengaturan", "Kelola koneksi database Supabase dan preferensi aplikasi — khusus admin/pengelola.");
+    html += '<div class="alert alert-warn">' + S.icon("shield", 16) +
+      "<span><b>Keamanan:</b> gunakan HANYA <i>anon public key</i>. Service role key dilarang keras ditulis di file frontend. Keamanan data tetap dijaga RLS (Row Level Security) di sisi Supabase.</span></div>";
+    html += '<div class="grid grid-2">' +
+      '<div class="panel"><h3>Koneksi Supabase</h3>' +
+      '<div style="margin-bottom:12px">' + (mode === "supabase"
+        ? '<span class="badge st-hijau">Terhubung ke Supabase</span><br><small style="color:var(--abu)">' + S.esc(cfg.SUPABASE_URL || "") + "</small>"
+        : '<span class="badge st-abu">Mode Demo</span><br><small style="color:var(--abu)">Data tersimpan di localStorage browser ini, tanpa server.</small>') + "</div>" +
+      '<div class="field"><label>Supabase Project URL</label><input type="url" id="st-url" placeholder="https://abcdefgh.supabase.co" value="' + S.esc(cfg.SUPABASE_URL || "") + '"/></div>' +
+      '<div class="field"><label>Anon Public Key</label><div style="display:flex;gap:8px"><input type="password" id="st-key" style="flex:1" placeholder="eyJhbGciOi..." value="' + S.esc(cfg.SUPABASE_ANON_KEY || "") + '"/><button type="button" class="btn btn-ghost" id="st-toggle">Lihat</button></div></div>' +
+      '<div style="display:flex;gap:9px;flex-wrap:wrap;margin-top:6px">' +
+      '<button class="btn btn-primary" id="st-simpan">' + S.icon("check", 15) + " Simpan & Terhubung</button>" +
+      '<button class="btn btn-blue" id="st-uji">' + S.icon("search", 15) + " Uji Koneksi</button>" +
+      '<button class="btn btn-ghost" id="st-demo">Pakai Mode Demo</button>' +
+      "</div>" +
+      '<p style="font-size:12.5px;color:var(--abu);margin-top:10px">Simpan akan memuat ulang aplikasi agar mode backend aktif langsung berubah — berlaku di semua halaman (beranda, dashboard, admin).</p>' +
+      "</div>" +
+      '<div class="panel"><h3>Cara Menghubungkan</h3>' +
+      '<ol style="font-size:13.5px;line-height:1.9;padding-left:18px;margin:0">' +
+      "<li>Buat proyek di <b>supabase.com</b> (New project).</li>" +
+      "<li>Buka <b>SQL Editor</b>, jalankan <code>sql/supabase_schema.sql</code> dari paket aplikasi.</li>" +
+      "<li>Buka <b>Project Settings → API</b>, salin <b>Project URL</b> & <b>anon public key</b>.</li>" +
+      "<li>Tempel di form di samping, klik <b>Uji Koneksi</b>, lalu <b>Simpan & Terhubung</b>.</li>" +
+      "</ol>" +
+      '<div class="alert alert-info" style="margin-top:12px">' + S.icon("bell", 15) + "<span>Jika uji koneksi gagal dengan pesan <i>relation ... does not exist</i> atau <i>function platform_stats ...</i>, berarti schema SQL belum dijalankan di proyek Supabase Anda.</span></div>" +
+      "</div></div>";
+
+    html += '<div class="panel"><h3>Informasi Aplikasi</h3><dl class="kv">' +
+      "<dt>Nama Aplikasi</dt><dd>" + S.esc(SB.teks ? SB.teks("app_nama") : (cfg.APP_NAME || "Saling Bantu")) + "</dd>" +
+      "<dt>Tagline</dt><dd>" + S.esc(SB.teks ? SB.teks("app_tagline") : (cfg.APP_TAGLINE || "")) + "</dd>" +
+      "<dt>Kontak Email</dt><dd>" + S.esc(SB.teks ? SB.teks("email_kontak") : (cfg.EMAIL_KONTAK || "-")) + "</dd>" +
+      "<dt>Rekening Donasi</dt><dd>" + S.esc(SB.teks ? SB.teks("bank_nama") : "-") + " — " + S.esc(SB.teks ? SB.teks("bank_rekening") : "-") + " a.n. " + S.esc(SB.teks ? SB.teks("bank_atas_nama") : "-") + "</dd>" +
+      "</dl><p style=\"font-size:12.5px;color:var(--abu);margin:8px 0 0\">Teks-teks ini dapat diubah dari menu <a href='#isi'><b>Isi Website</b></a> tanpa menyentuh kode.</p></div>";
+    mainEl().innerHTML = html;
+
+    const inpKey = document.getElementById("st-key");
+    document.getElementById("st-toggle").addEventListener("click", () => {
+      inpKey.type = inpKey.type === "password" ? "text" : "password";
+      document.getElementById("st-toggle").textContent = inpKey.type === "password" ? "Lihat" : "Sembunyi";
+    });
+    document.getElementById("st-demo").addEventListener("click", async () => {
+      if (!(await S.konfirmasi("Hapus konfigurasi tersimpan dan kembali ke Mode Demo (data lokal browser)?", "Ya, mode demo"))) return;
+      localStorage.removeItem("sb_koneksi");
+      location.reload();
+    });
+    document.getElementById("st-uji").addEventListener("click", async () => {
+      const url = document.getElementById("st-url").value.trim();
+      const key = inpKey.value.trim();
+      if (!url || !key) { S.toast("Isi URL dan anon key terlebih dahulu.", "gagal"); return; }
+      if (!window.supabase) { S.toast("Pustaka supabase-js belum termuat.", "gagal"); return; }
+      S.toast("Menguji koneksi...", "info");
+      try {
+        const c = window.supabase.createClient(url, key);
+        const { data, error } = await c.rpc("platform_stats");
+        if (error) throw new Error(error.message);
+        S.toast("Koneksi OK — schema terbaca. Total pengguna: " + ((data || {}).total_pengguna || 0) + ".", "sukses");
+      } catch (e) { S.toast("Gagal: " + e.message, "gagal"); }
+    });
+    document.getElementById("st-simpan").addEventListener("click", () => {
+      const url = document.getElementById("st-url").value.trim();
+      const key = inpKey.value.trim();
+      if (url && !/^https:\/\/.+/.test(url)) { S.toast("URL harus dimulai dengan https://", "gagal"); return; }
+      if ((url && !key) || (!url && key)) { S.toast("URL dan anon key harus diisi berpasangan.", "gagal"); return; }
+      try { localStorage.setItem("sb_koneksi", JSON.stringify({ SUPABASE_URL: url, SUPABASE_ANON_KEY: key })); }
+      catch (e) { S.toast("Gagal menyimpan: " + e.message, "gagal"); return; }
+      S.toast("Tersimpan. Memuat ulang aplikasi...", "sukses");
+      setTimeout(() => location.reload(), 600);
+    });
   }
 
   /* ================= LAPORAN ================= */
@@ -454,15 +968,19 @@
 
   async function renderSection() {
     const id = (location.hash || "#statistik").slice(1);
+    hentikanRealtime(); /* hentikan langganan realtime menu sebelumnya */
     renderNav();
     const el = mainEl();
     el.innerHTML = '<div class="empty" style="padding:70px 10px">Memuat modul...</div>';
     try {
-      if (id === "pengguna") await vPengguna();
+      if (id === "realtime") await vRealtime();
+      else if (id === "pengguna") await vPengguna();
       else if (id === "pengajuan") await vPengajuan();
       else if (id === "donasi") await vDonasi();
       else if (id === "konten") await vKonten();
+      else if (id === "isi") await vIsiWebsite();
       else if (id === "laporan") await vLaporan();
+      else if (id === "pengaturan") await vPengaturan();
       else await vStatistik();
     } catch (e) {
       el.innerHTML = '<div class="panel"><div class="alert alert-danger">' + S.icon("x", 16) + "<span>Gagal memuat modul: " + S.esc(e.message) + "</span></div></div>";
@@ -476,9 +994,9 @@
       setTimeout(() => { location.href = "masuk.html?next=admin.html"; }, 800);
       return;
     }
-    if (user.peran !== "admin") {
+    if (!BOLEH_KELOLA.includes(user.peran)) {
       mainEl().innerHTML = '<div class="panel"><div class="alert alert-danger">' + S.icon("shield", 16) +
-        "<span><b>Akses ditolak.</b> Halaman ini hanya untuk admin. <a href='dashboard.html'>Kembali ke dashboard</a>.</span></div></div>";
+        "<span><b>Akses ditolak.</b> Halaman ini hanya untuk admin/pengelola. <a href='dashboard.html'>Kembali ke dashboard</a>.</span></div></div>";
       return;
     }
     renderNav();
