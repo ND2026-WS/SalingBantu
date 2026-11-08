@@ -108,6 +108,7 @@ create table if not exists public.assistance_requests (
   id               uuid primary key default gen_random_uuid(),
   code             text unique,                       -- SB-YYYY-0001
   user_id          uuid not null references public.profiles(id) on delete cascade,
+  beneficiary_name text not null default '',          -- nama penerima/golongan (boleh beda dari pemilik akun; dipakai fitur Tambah Program admin)
   category_code    text not null references public.assistance_categories(code),
   sub_category     text not null default '',
   title            text not null,

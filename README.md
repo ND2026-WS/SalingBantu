@@ -302,16 +302,33 @@ tidak terbaca, sehingga akun yang terdaftar di Supabase memang tidak dikenali
 
 ### Jumlah file di dalam zip
 
-Paket `saling-bantu.zip` berisi **33 file + 4 folder** = **37 entri** (folder:
+Paket `saling-bantu.zip` berisi **35 file + 4 folder** = **39 entri** (folder:
 `saling-bantu/`, `css/`, `js/`, `sql/`). Penampil zip menghitung entri folder
 sebagai "file", sedangkan file manager (Windows Explorer) hanya menampilkan
-33 file — keduanya normal, tidak ada file yang hilang.
+35 file — keduanya normal, tidak ada file yang hilang.
 
 ### Akun dibuat langsung dari Dashboard Supabase tidak bisa masuk
 
 Sejak v1.5, saat login aplikasi otomatis membuat baris `profiles` dari metadata
 akun (nama dari metadata, peran bawaan `donatur`). Pastikan kebijakan
 `p_profiles_insert` ada — cukup jalankan `sql/update_fix_login.sql` sekali.
+
+### Muncul "Could not find the 'beneficiary_name' column of 'assistance_requests' in the schema cache"
+
+Error ini muncul saat **Tambah Program** (atau form *Ajukan Bantuan*) ketika
+database Supabase Anda dibuat dari schema lama yang belum memiliki kolom
+`beneficiary_name` (penyimpan nama penerima/golongan pada program).
+**Solusi:** buka **Dashboard Supabase → SQL Editor → New query**, tempel
+seluruh isi `sql/update_admin_program.sql`, lalu klik **Run**. File itu akan:
+
+1. menambah kolom `beneficiary_name` pada tabel `assistance_requests`
+   (`alter table ... add column if not exists`),
+2. menyegarkan cache skema (`notify pgrst, 'reload schema'`),
+3. memperbarui kebijakan RLS agar peran *pengelola* juga boleh mengelola
+   pengajuan.
+
+Setelah selesai, muat ulang halaman aplikasi dan coba lagi — aman dijalankan
+berulang, tidak mengubah data yang sudah ada.
 
 ### Tambah Program dari Panel Admin (fitur baru)
 
@@ -324,6 +341,7 @@ atau *Terverifikasi*. Semua pembuatan program tercatat di jejak audit.
 - Pencatatan dana ZISWAF (zakat/infaq/sedekah/wakaf) tetap lewat menu
   **Modul ZISWAF → Catat ZISWAF (Tunai/Offline)**.
 - Database yang **sudah berjalan**: jalankan `sql/update_admin_program.sql`
-  agar peran *pengelola* juga berhak membuat program (RLS `p_requests_admin`
-  kini memakai `is_pengelola()`). Database baru sudah termasuk di
+  — selain memberi hak *pengelola* (RLS `p_requests_admin` kini memakai
+  `is_pengelola()`), file itu juga menambahkan kolom `beneficiary_name`
+  yang wajib ada untuk fitur ini. Database baru sudah lengkap di
   `supabase_schema.sql`.

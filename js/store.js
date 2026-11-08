@@ -659,6 +659,14 @@ window.SB = window.SB || {};
       if (/invalid api key|jwt/i.test(s)) return "Anon key tidak valid. Periksa kembali anon public key di Pengaturan koneksi.";
       return s;
     }
+    function pesanDb(m) {
+      const s = String(m || "");
+      // PGRST204 — kolom tidak ditemukan: skema database belum diperbarui (database lama)
+      const miss = s.match(/could not find the '([^']+)' column of '([^']+)'/i);
+      if (miss) return "Skema database belum diperbarui: kolom '" + miss[1] + "' tidak ada di tabel " + miss[2] + ". Solusi: buka Dashboard Supabase → SQL Editor → New query, tempel seluruh isi file sql/update_admin_program.sql, lalu klik Run. Setelah selesai, muat ulang halaman ini dan coba lagi.";
+      if (/schema cache/i.test(s)) return "Cache skema Supabase kedaluwarsa. Buka Dashboard Supabase → SQL Editor dan jalankan: notify pgrst, 'reload schema'; lalu muat ulang halaman.";
+      return s;
+    }
 
     function mapProfil(p, email) {
       return { id: p.id, nama: p.full_name, email: email, telepon: p.phone, peran: p.role, kota: p.city, bio: p.bio, terverifikasi: p.is_verified, aktif: p.is_active, avatar_url: p.avatar_url };
@@ -781,7 +789,7 @@ window.SB = window.SB || {};
         if (patch.kebutuhan != null) p.amount_needed = Number(patch.kebutuhan) || 0;
         if (patch.publik != null) p.is_public = !!patch.publik;
         const { error } = await sb.from("assistance_requests").update(p).eq("id", id);
-        if (error) throw new Error(error.message);
+        if (error) throw new Error(pesanDb(error.message));
       },
       async updateDonationAdmin(id, patch) {
         const me = await meRow(); if (!me || me.peran !== "admin") throw new Error("Hanya admin yang dapat mengedit donasi.");
@@ -858,7 +866,7 @@ window.SB = window.SB || {};
           beneficiary_name: u.nama, is_public: true
         };
         const { data: row, error } = await sb.from("assistance_requests").insert(ins).select().single();
-        if (error) throw new Error(error.message);
+        if (error) throw new Error(pesanDb(error.message));
         // unggah lampiran bila ada
         if (data.foto && data.foto.file) {
           const path = u.id + "/" + row.id + "-foto";
@@ -884,14 +892,14 @@ window.SB = window.SB || {};
           beneficiary_name: data.namaPenerima || u.nama, is_public: data.publik !== false, status: status
         };
         const { data: row, error } = await sb.from("assistance_requests").insert(ins).select().single();
-        if (error) throw new Error(error.message);
+        if (error) throw new Error(pesanDb(error.message));
         return mapReq(row);
       },
       async updateRequestStatus(id, baru, catatan) {
         const u = await meRow();
         if (!u || u.peran !== "admin") throw new Error("Hanya admin yang dapat mengubah status.");
         const { data, error } = await sb.from("assistance_requests").update({ status: baru, rejection_reason: catatan || null }).eq("id", id).select().single();
-        if (error) throw new Error(error.message);
+        if (error) throw new Error(pesanDb(error.message));
         return mapReq(data);
       },
 
