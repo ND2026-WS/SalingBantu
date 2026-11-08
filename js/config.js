@@ -15,8 +15,8 @@
    ============================================================ */
 
 const SB_CONFIG = {
-  SUPABASE_URL: "",          // contoh: "https://abcdefgh.supabase.co"
-  SUPABASE_ANON_KEY: "",     // anon public key (BUKAN service_role!)
+  SUPABASE_URL: "https://xhwlrwxvbeafvwaazlqk.supabase.co",          // contoh: "https://abcdefgh.supabase.co"
+  SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhod2xyd3h2YmVhZnZ3YWF6bHFrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQxMzQwMTQsImV4cCI6MjEwOTcxMDAxNH0.mxqvkZXLh2SWp64DQ9AHegKgSIofM2UdLEQPx5DKqQs",     // anon public key (BUKAN service_role!)
 
   APP_NAME: "Saling Bantu",
   APP_TAGLINE: "Ringankan Beban, Tebarkan Kebaikan",
