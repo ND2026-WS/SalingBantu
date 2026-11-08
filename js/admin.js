@@ -474,7 +474,10 @@
 
   async function vPengajuan() {
     cache.requests = await S.store.listRequests({ publikOnly: false });
-    let html = head("Manajemen Pengajuan", "Verifikasi, setujui, publikasikan, dan pantau pengajuan. Setiap perubahan tercatat di log verifikasi.");
+    let html = head("Manajemen Pengajuan", "Verifikasi, setujui, publikasikan, dan pantau pengajuan. Buat program donasi baru langsung dari sini lewat tombol Tambah Program.");
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px">' +
+      '<span style="font-size:13px;color:var(--abu)">' + cache.requests.length + ' pengajuan tercatat.</span>' +
+      '<button class="btn btn-primary" id="req-tambah">' + S.icon("plus", 15) + " Tambah Program / Pengajuan</button></div>";
     const badgeM = (st) => '<span class="badge st-abu">' + st + "</span>";
     html += '<div class="table-wrap"><table class="sb"><thead><tr>' +
       "<th>Kode</th><th>Pengajuan</th><th>Kategori</th><th>Status</th><th>Dana</th><th>Aksi</th></tr></thead><tbody>" +
@@ -501,6 +504,70 @@
       }));
     mainEl().querySelectorAll("[data-edit-req]").forEach((b) =>
       b.addEventListener("click", () => modalEditPengajuan(b.dataset.editReq)));
+    document.getElementById("req-tambah").addEventListener("click", () => modalTambahProgram());
+  }
+
+  /* ---------- Tambah Program / Pengajuan (oleh admin/pengelola) ---------- */
+  function modalTambahProgram() {
+    const katOpts = Object.entries(S.KATEGORI).map(([k, m]) =>
+      '<option value="' + k + '">' + m.label + "</option>").join("");
+    S.modal({
+      judul: "Tambah Program / Pengajuan Baru",
+      lebar: 640,
+      isi:
+        '<div class="form-row">' +
+        '<div class="field" style="grid-column:1/-1"><label>Judul Program *</label><input type="text" id="nr-judul" placeholder="cth: Beasiswa Santri Yatim Semester Genap" required/></div>' +
+        '<div class="field"><label>Kategori *</label><select id="nr-kategori">' + katOpts + "</select></div>" +
+        '<div class="field"><label>Sub-kategori</label><select id="nr-sub"></select></div>' +
+        '<div class="field"><label>Nama Penerima / Golongan</label><input type="text" id="nr-penerima" placeholder="cth: 15 santri yatim TPQ Al-Ikhlas"/></div>' +
+        '<div class="field"><label>Kebutuhan (Rp)</label><input type="number" id="nr-kebutuhan" min="0" step="10000" placeholder="5000000"/></div>' +
+        '<div class="field"><label>Kota</label><input type="text" id="nr-kota"/></div>' +
+        '<div class="field"><label>Provinsi</label><input type="text" id="nr-provinsi"/></div>' +
+        '<div class="field"><label>Kontak (rahasia dari publik)</label><input type="text" id="nr-kontak"/></div>' +
+        '<div class="field"><label>Status Awal</label><select id="nr-status">' +
+        '<option value="dipublikasikan" selected>Dipublikasikan — langsung tampil &amp; bisa diberi donasi</option>' +
+        '<option value="menunggu_verifikasi">Menunggu Verifikasi</option>' +
+        '<option value="terverifikasi">Terverifikasi — belum tampil publik</option>' +
+        "</select></div>" +
+        '<div class="field" style="grid-column:1/-1"><label>Deskripsi / Cerita Program</label><textarea id="nr-deskripsi" rows="4" placeholder="Jelaskan latar belakang, penerima manfaat, dan rencana penyaluran..."></textarea></div>' +
+        "</div>" +
+        '<p style="font-size:12.5px;color:var(--abu);margin-top:8px">Program langsung tercatat di jejak audit. Pencatatan dana ZISWAF (zakat/infaq/sedekah/wakaf) tetap lewat menu <b>Modul ZISWAF</b> → Catat ZISWAF (Tunai/Offline).</p>',
+      footer: '<button class="btn btn-ghost" onclick="SB.modalClose()">Batal</button><button class="btn btn-primary" id="nr-simpan">' + S.icon("check", 15) + " Buat Program</button>"
+    });
+    const isiSub = () => {
+      const subs = (S.KATEGORI[document.getElementById("nr-kategori").value] || {}).sub || [];
+      document.getElementById("nr-sub").innerHTML = subs.map((s) => '<option value="' + s + '">' + s + "</option>").join("");
+    };
+    isiSub();
+    document.getElementById("nr-kategori").addEventListener("change", isiSub);
+    document.getElementById("nr-simpan").addEventListener("click", async () => {
+      const judul = document.getElementById("nr-judul").value.trim();
+      if (!judul) { S.toast("Judul program wajib diisi.", "gagal"); return; }
+      const btn = document.getElementById("nr-simpan");
+      btn.disabled = true;
+      try {
+        const r = await S.store.addRequestAdmin({
+          judul,
+          kategori: document.getElementById("nr-kategori").value,
+          sub: document.getElementById("nr-sub").value,
+          namaPenerima: document.getElementById("nr-penerima").value.trim(),
+          kebutuhan: Number(document.getElementById("nr-kebutuhan").value) || 0,
+          kota: document.getElementById("nr-kota").value.trim(),
+          provinsi: document.getElementById("nr-provinsi").value.trim(),
+          kontak: document.getElementById("nr-kontak").value.trim(),
+          deskripsi: document.getElementById("nr-deskripsi").value.trim(),
+          status: document.getElementById("nr-status").value,
+          publik: true
+        });
+        S.modalClose();
+        S.toast("Program " + r.code + " berhasil dibuat.", "sukses");
+        SB.refreshNotif && SB.refreshNotif();
+        vPengajuan();
+      } catch (e) {
+        S.toast(e.message, "gagal");
+        btn.disabled = false;
+      }
+    });
   }
 
   function modalAdminPengajuan(id) {

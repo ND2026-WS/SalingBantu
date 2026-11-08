@@ -312,3 +312,18 @@ sebagai "file", sedangkan file manager (Windows Explorer) hanya menampilkan
 Sejak v1.5, saat login aplikasi otomatis membuat baris `profiles` dari metadata
 akun (nama dari metadata, peran bawaan `donatur`). Pastikan kebijakan
 `p_profiles_insert` ada — cukup jalankan `sql/update_fix_login.sql` sekali.
+
+### Tambah Program dari Panel Admin (fitur baru)
+
+Menu **Pengajuan** kini memiliki tombol **"+ Tambah Program / Pengajuan"** —
+admin/pengelola dapat langsung membuat program donasi/pengajuan tanpa harus
+menunggu form dari penerima. Status awal bisa dipilih: *Dipublikasikan*
+(langsung tampil di Cari Bantuan dan bisa diberi donasi), *Menunggu Verifikasi*,
+atau *Terverifikasi*. Semua pembuatan program tercatat di jejak audit.
+
+- Pencatatan dana ZISWAF (zakat/infaq/sedekah/wakaf) tetap lewat menu
+  **Modul ZISWAF → Catat ZISWAF (Tunai/Offline)**.
+- Database yang **sudah berjalan**: jalankan `sql/update_admin_program.sql`
+  agar peran *pengelola* juga berhak membuat program (RLS `p_requests_admin`
+  kini memakai `is_pengelola()`). Database baru sudah termasuk di
+  `supabase_schema.sql`.

@@ -317,6 +317,15 @@ language sql stable security definer set search_path = public as $$
   );
 $$;
 
+-- admin ATAU pengelola (didefinisikan awal agar bisa dipakai kebijakan RLS di bawah)
+create or replace function public.is_pengelola() returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1 from public.profiles
+    where id = auth.uid() and role::text in ('admin','pengelola') and is_active
+  );
+$$;
+
 -- updated_at otomatis
 create or replace function public.fn_touch() returns trigger
 language plpgsql as $$
@@ -619,10 +628,10 @@ create policy p_requests_public on public.assistance_requests for select to anon
 drop policy if exists p_requests_owner on public.assistance_requests;
 create policy p_requests_owner on public.assistance_requests for select to authenticated
   using (user_id = auth.uid());
--- admin full
+-- admin & pengelola full (termasuk fitur "Tambah Program" dari panel admin)
 drop policy if exists p_requests_admin on public.assistance_requests;
 create policy p_requests_admin on public.assistance_requests for all to authenticated
-  using (public.is_admin()) with check (public.is_admin());
+  using (public.is_pengelola()) with check (public.is_pengelola());
 -- pengguna bisa MENGAJUKAN, tapi tidak bisa mengubah/menghapus
 drop policy if exists p_requests_insert on public.assistance_requests;
 create policy p_requests_insert on public.assistance_requests for insert to authenticated

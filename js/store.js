@@ -314,6 +314,27 @@ window.SB = window.SB || {};
         saveDb(db);
         return r;
       },
+      /* ---------- TAMBAH PROGRAM (oleh admin/pengelola dari panel admin) ---------- */
+      async addRequestAdmin(data) {
+        await sleep(200);
+        const u = me();
+        if (!u || !["admin", "pengelola"].includes(u.peran)) throw new Error("Hanya admin/pengelola yang dapat menambah program.");
+        db.counters.req += 1;
+        const status = ["menunggu_verifikasi", "terverifikasi", "dipublikasikan"].includes(data.status) ? data.status : "dipublikasikan";
+        const r = {
+          id: uid(), code: "SB-2026-" + String(db.counters.req).padStart(4, "0"),
+          userId: u.id, namaPenerima: data.namaPenerima || u.nama, kategori: data.kategori, sub: data.sub || "",
+          judul: data.judul, deskripsi: data.deskripsi || "", kebutuhan: Number(data.kebutuhan) || 0,
+          terkumpul: 0, tersalur: 0, kota: data.kota || "", provinsi: data.provinsi || "",
+          kontak: data.kontak || "", foto: null, dokumen: null,
+          status: status, alasanTolak: "", publik: data.publik !== false, tanggal: now(),
+          riwayat: [{ status: status, oleh: u.nama, catatan: "Program dibuat dari panel admin", tanggal: now() }]
+        };
+        db.requests.unshift(r);
+        db.audit.unshift({ id: uid(), aktor: u.nama, aksi: "insert", entitas: "assistance_requests", entitasId: r.id, detail: { kode: r.code, judul: r.judul, status: status }, tanggal: now() });
+        saveDb(db);
+        return r;
+      },
       async updateRequestStatus(id, baru, catatan) {
         await sleep(150);
         const r = db.requests.find((x) => x.id === id);
@@ -849,6 +870,21 @@ window.SB = window.SB || {};
           const { error: e3 } = await sb.storage.from("bukti-dokumen").upload(path, data.dokumen.file);
           if (!e3) await sb.from("assistance_requests").update({ document_url: (cfg.SUPABASE_URL + "/storage/v1/object/public/bukti-dokumen/" + path) }).eq("id", row.id);
         }
+        return mapReq(row);
+      },
+      /* ---------- TAMBAH PROGRAM (oleh admin/pengelola dari panel admin) ---------- */
+      async addRequestAdmin(data) {
+        const u = await meRow();
+        if (!u || !["admin", "pengelola"].includes(u.peran)) throw new Error("Hanya admin/pengelola yang dapat menambah program.");
+        const status = ["menunggu_verifikasi", "terverifikasi", "dipublikasikan"].includes(data.status) ? data.status : "dipublikasikan";
+        const ins = {
+          user_id: u.id, category_code: data.kategori, sub_category: data.sub || "",
+          title: data.judul, description: data.deskripsi || "", amount_needed: Number(data.kebutuhan) || 0,
+          city: data.kota || "", province: data.provinsi || "", contact: data.kontak || "",
+          beneficiary_name: data.namaPenerima || u.nama, is_public: data.publik !== false, status: status
+        };
+        const { data: row, error } = await sb.from("assistance_requests").insert(ins).select().single();
+        if (error) throw new Error(error.message);
         return mapReq(row);
       },
       async updateRequestStatus(id, baru, catatan) {
