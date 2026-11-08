@@ -1185,6 +1185,7 @@
         ? '<span class="badge st-hijau">Terhubung ke Supabase</span><br><small style="color:var(--abu)">' + S.esc(cfg.SUPABASE_URL || "") + "</small>"
         : '<span class="badge st-abu">Mode Demo</span><br><small style="color:var(--abu)">Data tersimpan di localStorage browser ini, tanpa server.</small>') + "</div>" +
       '<div class="field"><label>Supabase Project URL</label><input type="url" id="st-url" placeholder="https://abcdefgh.supabase.co" value="' + S.esc(cfg.SUPABASE_URL || "") + '"/></div>' +
+      '<p class="hint" style="margin:-4px 0 10px">Format: <b>https://xxxxx.supabase.co</b> — salin dari Dashboard Supabase → Project Settings → API. <b>Bukan</b> email atau kata sandi akun Anda.</p>' +
       '<div class="field"><label>Anon Public Key</label><div style="display:flex;gap:8px"><input type="password" id="st-key" style="flex:1" placeholder="eyJhbGciOi..." value="' + S.esc(cfg.SUPABASE_ANON_KEY || "") + '"/><button type="button" class="btn btn-ghost" id="st-toggle">Lihat</button></div></div>' +
       '<div style="display:flex;gap:9px;flex-wrap:wrap;margin-top:6px">' +
       '<button class="btn btn-primary" id="st-simpan">' + S.icon("check", 15) + " Simpan & Terhubung</button>" +
@@ -1195,9 +1196,9 @@
       "</div>" +
       '<div class="panel"><h3>Cara Menghubungkan</h3>' +
       '<ol style="font-size:13.5px;line-height:1.9;padding-left:18px;margin:0">' +
-      "<li>Buat proyek di <b>supabase.com</b> (New project).</li>" +
+      "<li>Masuk ke <b>supabase.com/dashboard</b> memakai email & kata sandi akun Supabase, lalu pilih proyek Anda. <i>(Email ini hanya untuk login dashboard — tidak pernah dipakai di aplikasi ini.)</i></li>" +
       "<li>Buka <b>SQL Editor</b>, jalankan <code>sql/supabase_schema.sql</code> dari paket aplikasi.</li>" +
-      "<li>Buka <b>Project Settings → API</b>, salin <b>Project URL</b> & <b>anon public key</b>.</li>" +
+      "<li>Buka <b>Project Settings → API</b> (atau <i>API Keys</i>), salin <b>Project URL</b> — berformat <code>https://xxxxx.supabase.co</code> — serta <b>anon public key</b> (baris panjang <code>eyJ…</code> atau <code>sb_publishable_…</code>).</li>" +
       "<li>Tempel di form di samping, klik <b>Uji Koneksi</b>, lalu <b>Simpan & Terhubung</b>.</li>" +
       "</ol>" +
       '<div class="alert alert-info" style="margin-top:12px">' + S.icon("bell", 15) + "<span>Jika uji koneksi gagal dengan pesan <i>relation ... does not exist</i> atau <i>function platform_stats ...</i>, berarti schema SQL belum dijalankan di proyek Supabase Anda.</span></div>" +
@@ -1237,6 +1238,10 @@
     document.getElementById("st-simpan").addEventListener("click", () => {
       const url = document.getElementById("st-url").value.trim();
       const key = inpKey.value.trim();
+      if (/@/.test(url) && !/^https:\/\//.test(url)) {
+        S.toast("Kolom Project URL diisi https://xxxxx.supabase.co — BUKAN alamat email. Salin dari Dashboard Supabase → Project Settings → API.", "gagal");
+        return;
+      }
       if (url && !/^https:\/\/.+/.test(url)) { S.toast("URL harus dimulai dengan https://", "gagal"); return; }
       if ((url && !key) || (!url && key)) { S.toast("URL dan anon key harus diisi berpasangan.", "gagal"); return; }
       try { localStorage.setItem("sb_koneksi", JSON.stringify({ SUPABASE_URL: url, SUPABASE_ANON_KEY: key })); }

@@ -23,6 +23,7 @@
         '<div class="alert alert-warn" style="margin-bottom:12px">' + S.icon("shield", 15) +
         "<span>Gunakan HANYA <i>anon public key</i> — service role key dilarang keras di frontend.</span></div>" +
         '<div class="field"><label>Supabase Project URL</label><input id="kx-url" type="url" placeholder="https://abcdefgh.supabase.co" value="' + S.esc(cfg.SUPABASE_URL || "") + '"/></div>' +
+        '<p class="hint" style="margin:-4px 0 10px">Format: <b>https://xxxxx.supabase.co</b> — salin dari Dashboard Supabase → Project Settings → API. <b>Bukan</b> email atau kata sandi akun Anda.</p>' +
         '<div class="field"><label>Anon Public Key</label><input id="kx-key" type="password" placeholder="eyJhbGciOi..." value="' + S.esc(cfg.SUPABASE_ANON_KEY || "") + '"/></div>' +
         '<p class="hint">Tersimpan di browser ini (localStorage "sb_koneksi") dan langsung berlaku di semua halaman. Kosongkan kedua kolom lalu simpan untuk kembali ke Mode Demo. Pastikan <b>sql/supabase_schema.sql</b> sudah dijalankan di SQL Editor proyek Supabase Anda.</p>',
       footer: '<button class="btn btn-ghost" id="kx-batal">Batal</button><button class="btn btn-primary" id="kx-simpan">Simpan & Muat Ulang</button>'
@@ -31,6 +32,10 @@
     document.getElementById("kx-simpan").onclick = () => {
       const url = document.getElementById("kx-url").value.trim();
       const key = document.getElementById("kx-key").value.trim();
+      if (/@/.test(url) && !/^https:\/\//.test(url)) {
+        S.toast("Kolom Project URL diisi https://xxxxx.supabase.co — BUKAN alamat email. Salin dari Dashboard Supabase → Project Settings → API.", "gagal");
+        return;
+      }
       if ((url && !key) || (!url && key)) { S.toast("URL dan anon key harus diisi berpasangan (atau keduanya kosong).", "gagal"); return; }
       if (url && !/^https:\/\/.+/.test(url)) { S.toast("URL harus dimulai dengan https://", "gagal"); return; }
       try { localStorage.setItem("sb_koneksi", JSON.stringify({ SUPABASE_URL: url, SUPABASE_ANON_KEY: key })); }
