@@ -313,6 +313,29 @@ Sejak v1.5, saat login aplikasi otomatis membuat baris `profiles` dari metadata
 akun (nama dari metadata, peran bawaan `donatur`). Pastikan kebijakan
 `p_profiles_insert` ada — cukup jalankan `sql/update_fix_login.sql` sekali.
 
+### Alur notifikasi donasi — masuk ke mana?
+
+Semua notifikasi Saling Bantu berupa **notifikasi dalam aplikasi** (lonceng di
+kanan atas), bukan email. Untuk setiap konfirmasi donasi dari website
+(finansial, barang, tenaga, keahlian, jaringan):
+
+1. **Donasi tercatat** dengan status *menunggu konfirmasi* + nomor kuitansi
+   digital (KWT-...) — otomatis, tanpa perlu admin memproses lebih dulu.
+2. **Pemilik pengajuan** (penerima bantuan) mendapat lonceng
+   *"Ada niat baik untuk pengajuanmu"* → tautan ke `dashboard.html#pengajuan`.
+3. **Semua admin aktif** mendapat lonceng *"Donasi baru menunggu konfirmasi"*
+   → tautan langsung ke `admin.html#donasi`.
+4. **Admin memproses** di panel admin → menu **Donasi** (baris berstatus
+   *Menunggu Konfirmasi*) → tombol Konfirmasi/Tolak.
+5. Setelah dikonfirmasi: dana terkumpul bertambah otomatis, donor menerima
+   lonceng *"Donasi terkonfirmasi"* (kuitansi di Riwayat Donasi), dan bila
+   target tercapai seluruh admin menerima *"Target tercapai"* pengingat
+   penyaluran. Semua kejadian tercatat di **Jejak Audit** (menu Laporan).
+
+> Database yang sudah berjalan perlu menjalankan ulang
+> `sql/update_admin_program.sql` agar notifikasi poin 3 aktif — trigger
+> `fn_donation_created()` kini juga mengabari semua admin aktif.
+
 ### Muncul "Could not find the 'beneficiary_name' column of 'assistance_requests' in the schema cache"
 
 Error ini muncul saat **Tambah Program** (atau form *Ajukan Bantuan*) ketika

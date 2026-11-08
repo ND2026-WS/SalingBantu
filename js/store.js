@@ -360,6 +360,7 @@ window.SB = window.SB || {};
           const r = db.requests.find((x) => x.id === d.requestId);
           if (r) notify(r.userId, "donasi_tercatat", "Ada niat baik untuk pengajuanmu", (d.anonim ? "Sahabat Bantu (anonim)" : d.donorNama) + " memberikan bantuan (" + d.jenis + ") untuk \"" + r.judul + "\".", "dashboard.html#pengajuan");
         }
+        notifyAdmins("donasi_tercatat", "Donasi baru menunggu konfirmasi", "Donasi " + d.kuitansi + " (" + d.jenis + ") dari " + (d.anonim ? "Hamba Allah" : d.donorNama) + " menunggu konfirmasi di modul Donasi.", "admin.html#donasi");
         saveDb(db);
         return d;
       },

@@ -10,6 +10,10 @@
 -- 2. Kebijakan RLS assistance_requests diperluas — selain admin,
 --    peran PENGELOLA juga boleh membuat/mengelola pengajuan
 --    (p_requests_admin kini memakai is_pengelola()).
+-- 3. NOTIFIKASI DONASI MASUK untuk admin — setiap ada donasi baru
+--    (finansial/barang/tenaga/keahlian/jaringan), semua admin aktif
+--    menerima notifikasi lonceng "Donasi baru menunggu konfirmasi"
+--    dengan tautan langsung ke menu Donasi.
 --
 -- Jalankan di SQL Editor Supabase — aman dijalankan berulang.
 -- Database baru tidak butuh file ini (sudah ada di supabase_schema.sql).
@@ -38,3 +42,29 @@ create policy p_requests_admin on public.assistance_requests for all to authenti
 
 -- catatan: pengguna biasa tetap hanya bisa mengajukan dengan status
 -- 'menunggu_verifikasi' (kebijakan p_requests_insert tidak berubah).
+
+-- (4) trigger donasi baru: audit + notifikasi pemilik pengajuan +
+--     notifikasi semua admin aktif (diperbarui dari versi schema awal)
+create or replace function public.fn_donation_created() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare owner uuid; title text; dname text; r record;
+begin
+  perform public.fn_audit(new.donor_id, 'create', 'donations', new.id,
+    jsonb_build_object('jenis', new.type, 'jumlah', new.amount, 'kuitansi', new.receipt_number));
+  if new.request_id is not null then
+    select user_id, title into owner, title from public.assistance_requests where id = new.request_id;
+    dname := case when new.is_anonymous then 'Sahabat Bantu (anonim)' else new.donor_name end;
+    perform public.fn_notify(owner, 'donasi_tercatat', 'Ada niat baik untuk pengajuanmu',
+      dname || ' memberikan bantuan (' || new.type::text || ') untuk "' || title || '".',
+      'dashboard.html#pengajuan');
+  end if;
+  -- kabari semua admin aktif: donasi baru menunggu konfirmasi di modul Donasi
+  for r in select id from public.profiles where role = 'admin' and is_active loop
+    perform public.fn_notify(r.id, 'donasi_tercatat', 'Donasi baru menunggu konfirmasi',
+      coalesce(new.receipt_number, 'Donasi baru') || ' — ' || new.type::text || ' dari ' ||
+      case when new.is_anonymous then 'Hamba Allah' else coalesce(new.donor_name, 'Sahabat Bantu') end ||
+      '. Konfirmasi di menu Donasi.',
+      'admin.html#donasi');
+  end loop;
+  return new;
+end $$;

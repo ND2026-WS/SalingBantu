@@ -497,7 +497,7 @@ for each row execute function public.fn_request_status_changed();
 -- ============================================================
 create or replace function public.fn_donation_created() returns trigger
 language plpgsql security definer set search_path = public as $$
-declare owner uuid; title text; dname text;
+declare owner uuid; title text; dname text; r record;
 begin
   perform public.fn_audit(new.donor_id, 'create', 'donations', new.id,
     jsonb_build_object('jenis', new.type, 'jumlah', new.amount, 'kuitansi', new.receipt_number));
@@ -508,6 +508,14 @@ begin
       dname || ' memberikan bantuan (' || new.type::text || ') untuk "' || title || '".',
       'dashboard.html#pengajuan');
   end if;
+  -- kabari semua admin aktif: donasi baru menunggu konfirmasi di modul Donasi
+  for r in select id from public.profiles where role = 'admin' and is_active loop
+    perform public.fn_notify(r.id, 'donasi_tercatat', 'Donasi baru menunggu konfirmasi',
+      coalesce(new.receipt_number, 'Donasi baru') || ' — ' || new.type::text || ' dari ' ||
+      case when new.is_anonymous then 'Hamba Allah' else coalesce(new.donor_name, 'Sahabat Bantu') end ||
+      '. Konfirmasi di menu Donasi.',
+      'admin.html#donasi');
+  end loop;
   return new;
 end $$;
 drop trigger if exists trg_donation_created on public.donations;
