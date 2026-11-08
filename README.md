@@ -261,3 +261,54 @@ beserta total yang telah terverifikasi.
   `is_pengelola()` tersedia.
 
 
+---
+
+## 10. Masalah Umum & Solusinya (v1.5)
+
+### "Email atau kata sandi salah" padahal akun terdaftar di Supabase
+
+Gejala: di halaman Masuk muncul kotak biru **"Akun Demo (Mode Demo)"** dan login
+dengan akun Supabase selalu gagal.
+
+**Penyebab:** aplikasi sedang berjalan dalam **Mode Demo** — kredensial Supabase
+tidak terbaca, sehingga akun yang terdaftar di Supabase memang tidak dikenali
+(data demo hanya tersimpan di browser). Ini terjadi bila:
+
+1. `js/config.js` masih kosong (`SUPABASE_URL` / `SUPABASE_ANON_KEY` = `""`),
+   misalnya setelah mengekstrak ulang paket zip (file config kembali ke bawaan), **atau**
+2. koneksi Supabase belum pernah disimpan lewat form Pengaturan di browser ini.
+
+**Solusi (pilih salah satu):**
+
+- **Cara cepat, tanpa login:** di halaman Masuk akan muncul peringatan
+  *"Mode Demo aktif … atur koneksi Supabase"*. Klik tautan
+  **atur koneksi Supabase**, isi **Project URL** + **anon public key**, klik
+  *Simpan & Muat Ulang*. Kredensial tersimpan di `localStorage` browser
+  (`sb_koneksi`) dan langsung dipakai di semua halaman — tidak ikut hilang
+  saat zip diekstrak ulang.
+- **Cara file config:** edit `js/config.js`, isi `SUPABASE_URL` dan
+  `SUPABASE_ANON_KEY`, simpan, muat ulang halaman.
+
+> Catatan: karena kredensial versi *localStorage* menempel pada browser, aktifkan
+> juga lewat browser lain (atau isi `js/config.js`) bila situs dipakai banyak orang.
+
+### "Invalid login credentials" dalam Bahasa Inggris / pesan error lain
+
+- *Invalid login credentials* → memang salah email/sandi di Supabase.
+- *Email not confirmed* → buka email konfirmasi dari Supabase (cek folder spam).
+- "Autentikasi berhasil, tetapi profil tidak dapat dibuat/dibaca" → jalankan
+  `sql/supabase_schema.sql` (atau minimal `sql/update_fix_login.sql`) agar tabel
+  `profiles`, trigger pembuat profil, dan kebijakan RLS-nya lengkap.
+
+### Jumlah file di dalam zip
+
+Paket `saling-bantu.zip` berisi **33 file + 4 folder** = **37 entri** (folder:
+`saling-bantu/`, `css/`, `js/`, `sql/`). Penampil zip menghitung entri folder
+sebagai "file", sedangkan file manager (Windows Explorer) hanya menampilkan
+33 file — keduanya normal, tidak ada file yang hilang.
+
+### Akun dibuat langsung dari Dashboard Supabase tidak bisa masuk
+
+Sejak v1.5, saat login aplikasi otomatis membuat baris `profiles` dari metadata
+akun (nama dari metadata, peran bawaan `donatur`). Pastikan kebijakan
+`p_profiles_insert` ada — cukup jalankan `sql/update_fix_login.sql` sekali.

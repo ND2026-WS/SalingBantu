@@ -584,10 +584,15 @@ alter table public.audit_logs            enable row level security;
 -- ---- profiles ----
 drop policy if exists p_profiles_read   on public.profiles;
 create policy p_profiles_read on public.profiles for select to authenticated using (true);
+-- izinkan pengguna membuat baris profil miliknya SENDIRI (dipakai auto-profile
+-- saat login bila akun dibuat langsung dari Dashboard Supabase / trigger belum ada)
+drop policy if exists p_profiles_insert on public.profiles;
+create policy p_profiles_insert on public.profiles for insert to authenticated
+  with check (id = auth.uid());
 drop policy if exists p_profiles_update on public.profiles;
 create policy p_profiles_update on public.profiles for update to authenticated
   using (id = auth.uid() or public.is_admin()) with check (id = auth.uid() or public.is_admin());
--- insert dilakukan trigger security definer; delete hanya admin
+-- insert pengguna lain dilakukan trigger security definer; delete hanya admin
 drop policy if exists p_profiles_admin on public.profiles;
 create policy p_profiles_admin on public.profiles for all to authenticated
   using (public.is_admin()) with check (public.is_admin());

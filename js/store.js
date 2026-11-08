@@ -628,13 +628,40 @@ window.SB = window.SB || {};
   function SupabaseBackend() {
     const sb = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
 
+    /* Terjemahkan pesan error auth Supabase ke Bahasa Indonesia */
+    function pesanAuth(m) {
+      const s = String(m || "");
+      if (/invalid login credentials/i.test(s)) return "Email atau kata sandi salah.";
+      if (/email not confirmed/i.test(s)) return "Email belum dikonfirmasi. Buka kotak masuk/spam Anda lalu klik tautan konfirmasi dari Supabase.";
+      if (/rate limit|too many requests/i.test(s)) return "Terlalu banyak percobaan masuk. Tunggu 1-2 menit lalu coba lagi.";
+      if (/failed to fetch|networkerror|load failed/i.test(s)) return "Gagal menghubungi Supabase. Periksa koneksi internet atau Project URL Anda.";
+      if (/invalid api key|jwt/i.test(s)) return "Anon key tidak valid. Periksa kembali anon public key di Pengaturan koneksi.";
+      return s;
+    }
+
+    function mapProfil(p, email) {
+      return { id: p.id, nama: p.full_name, email: email, telepon: p.phone, peran: p.role, kota: p.city, bio: p.bio, terverifikasi: p.is_verified, aktif: p.is_active, avatar_url: p.avatar_url };
+    }
+
     async function meRow() {
       const { data: ses } = await sb.auth.getSession();
       const u = ses && ses.session && ses.session.user;
       if (!u) return null;
       const { data, error } = await sb.from("profiles").select("*").eq("id", u.id).single();
-      if (error) return null;
-      return { id: data.id, nama: data.full_name, email: u.email, telepon: data.phone, peran: data.role, kota: data.city, bio: data.bio, terverifikasi: data.is_verified, aktif: data.is_active, avatar_url: data.avatar_url };
+      if (data && !error) return mapProfil(data, u.email);
+      /* Profil belum ada (akun dibuat langsung dari Dashboard Supabase, atau
+         trigger handle_new_user belum terpasang) — coba buat otomatis dari
+         metadata auth. Bila RLS menolak, kembalikan null (signIn memberi
+         pesan yang jelas ke pengguna). */
+      const meta = u.user_metadata || {};
+      const { data: dibuat, error: eb } = await sb.from("profiles").upsert({
+        id: u.id,
+        full_name: meta.full_name || meta.name || String(u.email || "Pengguna").split("@")[0],
+        phone: meta.phone || "",
+        role: meta.role || "donatur"
+      }).select().single();
+      if (eb || !dibuat) return null;
+      return mapProfil(dibuat, u.email);
     }
     function mapReq(r) {
       return { id: r.id, code: r.code, userId: r.user_id, namaPenerima: r.beneficiary_name || "Warga Bantu", kategori: r.category_code, sub: r.sub_category, judul: r.title, deskripsi: r.description, kebutuhan: Number(r.amount_needed), terkumpul: Number(r.funds_collected), tersalur: Number(r.funds_distributed), kota: r.city, provinsi: r.province, kontak: r.contact, foto: r.photo_url ? { url: r.photo_url } : null, dokumen: r.document_url ? { url: r.document_url } : null, status: r.status, alasanTolak: r.rejection_reason || "", publik: r.is_public, tanggal: r.created_at };
@@ -663,10 +690,18 @@ window.SB = window.SB || {};
         return meRow();
       },
       async signIn(email, sandi) {
-        const { error } = await sb.auth.signInWithPassword({ email, password: sandi });
-        if (error) throw new Error(error.message);
+        let res;
+        try { res = await sb.auth.signInWithPassword({ email, password: sandi }); }
+        catch (e) {
+          throw new Error("Gagal menghubungi Supabase (" + (e && e.message ? e.message : "jaringan") + "). Periksa koneksi internet atau Project URL di menu koneksi.");
+        }
+        if (res.error) throw new Error(pesanAuth(res.error.message));
         const u = await meRow();
-        if (u && !u.aktif) { await sb.auth.signOut(); throw new Error("Akun dinonaktifkan. Hubungi admin."); }
+        if (!u) {
+          await sb.auth.signOut().catch(function () {});
+          throw new Error("Autentikasi berhasil, tetapi profil pengguna tidak dapat dibuat/dibaca. Pastikan sql/supabase_schema.sql sudah dijalankan (tabel profiles + kebijakan RLS), lalu coba lagi.");
+        }
+        if (!u.aktif) { await sb.auth.signOut(); throw new Error("Akun dinonaktifkan. Hubungi admin."); }
         return u;
       },
       async signOut() { await sb.auth.signOut(); },
