@@ -60,7 +60,7 @@ create table if not exists public.ziswaf_transactions (
   program          text not null default '',           -- Zakat Penghasilan, Beasiswa Yatim, ...
   kelompok         ziswaf_kelompok not null default 'umum',
   kelas            text not null default '',           -- khusus kelompok siswa
-  donor_id         uuid not null references public.profiles(id) on delete cascade,
+  donor_id         uuid references public.profiles(id) on delete cascade, -- boleh kosong: donatur tunai tanpa akun (siswa/umum)
   donor_name       text not null default '',
   is_anonymous     boolean not null default false,
   bentuk           ziswaf_bentuk not null default 'uang',
@@ -197,10 +197,11 @@ drop policy if exists p_ziswaf_tx_read on public.ziswaf_transactions;
 create policy p_ziswaf_tx_read on public.ziswaf_transactions for select to authenticated
   using (donor_id = auth.uid() or public.is_pengelola());
 
--- pemberi hanya bisa MENGAJUKAN (bukan mengubah status)
+-- pemberi hanya bisa MENGAJUKAN (bukan mengubah status);
+-- pengelola/admin boleh mencatat ZISWAF atas nama donatur offline tanpa akun
 drop policy if exists p_ziswaf_tx_insert on public.ziswaf_transactions;
 create policy p_ziswaf_tx_insert on public.ziswaf_transactions for insert to authenticated
-  with check (donor_id = auth.uid());
+  with check (donor_id = auth.uid() or public.is_pengelola());
 
 -- verifikasi & edit hanya admin/pengelola
 drop policy if exists p_ziswaf_tx_admin on public.ziswaf_transactions;

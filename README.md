@@ -302,10 +302,10 @@ tidak terbaca, sehingga akun yang terdaftar di Supabase memang tidak dikenali
 
 ### Jumlah file di dalam zip
 
-Paket `saling-bantu.zip` berisi **35 file + 4 folder** = **39 entri** (folder:
+Paket `saling-bantu.zip` berisi **36 file + 4 folder** = **40 entri** (folder:
 `saling-bantu/`, `css/`, `js/`, `sql/`). Penampil zip menghitung entri folder
 sebagai "file", sedangkan file manager (Windows Explorer) hanya menampilkan
-35 file — keduanya normal, tidak ada file yang hilang.
+36 file — keduanya normal, tidak ada file yang hilang.
 
 ### Akun dibuat langsung dari Dashboard Supabase tidak bisa masuk
 
@@ -355,6 +355,27 @@ email konfirmasi, reset kata sandi, dan magic link terkirim sungguhan.
 > Tips: pastikan juga email yang diketik saat daftar lengkap —
 > `nama@gmail.com`, bukan `nama@gmail` (tanpa akhiran). Form aplikasi sudah
 > menolak format tanpa akhiran domain.
+
+### Muncul "column reference \"title\" is ambiguous" saat kirim donasi
+
+Gejala: donatur mengisi form *Ingin Membantu* lalu menekan **Kirim Niat Baik**
+dan muncul error merah `column reference "title" is ambiguous`. Ini bug pada
+fungsi trigger versi schema lama: nama variabel PL/pgSQL (`title` di
+`fn_donation_created`, `code` di `fn_distribution_created`) sama dengan nama
+colom tabel, sehingga PostgreSQL menolak setiap donasi yang terhubung ke
+pengajuan.
+
+**Solusi:** Dashboard Supabase → SQL Editor → New query → tempel seluruh isi
+`sql/update_fix_trigger.sql` → **Run**. File itu sekaligus memperbaiki:
+
+1. trigger donasi & penyaluran (konflik nama variabel–kolom),
+2. `ziswaf_transactions.donor_id` kini boleh kosong (donatur tunai tanpa
+   akun — siswa/umum),
+3. pengelola/admin boleh mencatat ZISWAF atas nama pemberi tanpa akun,
+4. kolom `updated_at` pada tabel `donations` (sebelumnya membuat tombol
+   Konfirmasi donasi gagal: `record "new" has no field "updated_at"`).
+
+Aman dijalankan berulang dan tidak mengubah data yang sudah ada.
 
 ### Alur notifikasi donasi — masuk ke mana?
 

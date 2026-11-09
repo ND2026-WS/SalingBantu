@@ -666,6 +666,8 @@ window.SB = window.SB || {};
       const miss = s.match(/could not find the '([^']+)' column of '([^']+)'/i);
       if (miss) return "Skema database belum diperbarui: kolom '" + miss[1] + "' tidak ada di tabel " + miss[2] + ". Solusi: buka Dashboard Supabase → SQL Editor → New query, tempel seluruh isi file sql/update_admin_program.sql, lalu klik Run. Setelah selesai, muat ulang halaman ini dan coba lagi.";
       if (/schema cache/i.test(s)) return "Cache skema Supabase kedaluwarsa. Buka Dashboard Supabase → SQL Editor dan jalankan: notify pgrst, 'reload schema'; lalu muat ulang halaman.";
+      // konflik nama di trigger database (versi schema lama) — mis. 'column reference "title" is ambiguous'
+      if (/column reference .*is ambiguous/i.test(s)) return "Bug trigger database versi lama (konflik penamaan kolom). Solusi: buka Dashboard Supabase → SQL Editor → New query, tempel seluruh isi file sql/update_fix_trigger.sql, klik Run, lalu coba lagi.";
       return s;
     }
     function pesanDaftar(m) {

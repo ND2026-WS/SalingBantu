@@ -149,6 +149,7 @@ create table if not exists public.donations (
   proof_url        text,
   verified_by      uuid references public.profiles(id),
   verified_at      timestamptz,
+  updated_at       timestamptz not null default now(),
   created_at       timestamptz not null default now()
 );
 
@@ -497,15 +498,16 @@ for each row execute function public.fn_request_status_changed();
 -- ============================================================
 create or replace function public.fn_donation_created() returns trigger
 language plpgsql security definer set search_path = public as $$
-declare owner uuid; title text; dname text; r record;
+declare v_owner uuid; v_title text; dname text; r record;
 begin
   perform public.fn_audit(new.donor_id, 'create', 'donations', new.id,
     jsonb_build_object('jenis', new.type, 'jumlah', new.amount, 'kuitansi', new.receipt_number));
   if new.request_id is not null then
-    select user_id, title into owner, title from public.assistance_requests where id = new.request_id;
+    select ar.user_id, ar.title into v_owner, v_title
+      from public.assistance_requests ar where ar.id = new.request_id;
     dname := case when new.is_anonymous then 'Sahabat Bantu (anonim)' else new.donor_name end;
-    perform public.fn_notify(owner, 'donasi_tercatat', 'Ada niat baik untuk pengajuanmu',
-      dname || ' memberikan bantuan (' || new.type::text || ') untuk "' || title || '".',
+    perform public.fn_notify(v_owner, 'donasi_tercatat', 'Ada niat baik untuk pengajuanmu',
+      dname || ' memberikan bantuan (' || new.type::text || ') untuk "' || v_title || '".',
       'dashboard.html#pengajuan');
   end if;
   -- kabari semua admin aktif: donasi baru menunggu konfirmasi di modul Donasi
@@ -562,16 +564,16 @@ for each row execute function public.fn_donation_verified();
 -- ============================================================
 create or replace function public.fn_distribution_created() returns trigger
 language plpgsql security definer set search_path = public as $$
-declare owner uuid; code text;
+declare v_owner uuid; v_code text;
 begin
-  update public.assistance_requests
-  set funds_distributed = funds_distributed + coalesce(new.amount, 0)
-  where id = new.request_id
-  returning user_id, code into owner, code;
+  update public.assistance_requests ar
+  set funds_distributed = ar.funds_distributed + coalesce(new.amount, 0)
+  where ar.id = new.request_id
+  returning ar.user_id, ar.code into v_owner, v_code;
   perform public.fn_audit(auth.uid(), 'create', 'assistance_distributions', new.id,
-    jsonb_build_object('request', code, 'jumlah', new.amount));
-  perform public.fn_notify(owner, 'bantuan_diterima', 'Bantuan disalurkan',
-    'Bantuan untuk pengajuan ' || code || ' telah disalurkan. Cek detail di dashboard.',
+    jsonb_build_object('request', v_code, 'jumlah', new.amount));
+  perform public.fn_notify(v_owner, 'bantuan_diterima', 'Bantuan disalurkan',
+    'Bantuan untuk pengajuan ' || v_code || ' telah disalurkan. Cek detail di dashboard.',
     'dashboard.html#pengajuan');
   return new;
 end $$;
@@ -998,7 +1000,7 @@ create table if not exists public.ziswaf_transactions (
   program          text not null default '',           -- Zakat Penghasilan, Beasiswa Yatim, ...
   kelompok         ziswaf_kelompok not null default 'umum',
   kelas            text not null default '',           -- khusus kelompok siswa
-  donor_id         uuid not null references public.profiles(id) on delete cascade,
+  donor_id         uuid references public.profiles(id) on delete cascade, -- boleh kosong: donatur tunai tanpa akun (siswa/umum)
   donor_name       text not null default '',
   is_anonymous     boolean not null default false,
   bentuk           ziswaf_bentuk not null default 'uang',
@@ -1138,7 +1140,7 @@ create policy p_ziswaf_tx_read on public.ziswaf_transactions for select to authe
 -- pemberi hanya bisa MENGAJUKAN (bukan mengubah status)
 drop policy if exists p_ziswaf_tx_insert on public.ziswaf_transactions;
 create policy p_ziswaf_tx_insert on public.ziswaf_transactions for insert to authenticated
-  with check (donor_id = auth.uid());
+  with check (donor_id = auth.uid() or public.is_pengelola()); -- pengelola mencatat donatur offline
 
 -- verifikasi & edit hanya admin/pengelola
 drop policy if exists p_ziswaf_tx_admin on public.ziswaf_transactions;
