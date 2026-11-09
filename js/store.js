@@ -668,6 +668,15 @@ window.SB = window.SB || {};
       if (/schema cache/i.test(s)) return "Cache skema Supabase kedaluwarsa. Buka Dashboard Supabase → SQL Editor dan jalankan: notify pgrst, 'reload schema'; lalu muat ulang halaman.";
       return s;
     }
+    function pesanDaftar(m) {
+      const s = String(m || "");
+      if (/user already registered/i.test(s)) return "Email sudah terdaftar. Silakan masuk dengan email tersebut, atau minta admin menghapus akun lama di Dashboard Supabase (Authentication → Users) bila ingin daftar ulang.";
+      if (/unable to validate email|invalid format|invalid email/i.test(s)) return "Format email tidak valid. Contoh penulisan yang benar: nama@gmail.com — pastikan domain lengkap dengan akhiran seperti .com /.id /.org.";
+      if (/password should be|password.*weak/i.test(s)) return "Kata sandi terlalu lemah untuk Supabase. Gunakan minimal 8 karakter kombinasi huruf dan angka.";
+      if (/signups not allowed/i.test(s)) return "Pendaftaran akun baru sedang ditutup oleh pengelola. Hubungi admin yayasan.";
+      if (/only email addresses added to the allowlist|allowlist/i.test(s)) return "Proyek Supabase Anda membatasi pendaftaran ke daftar email tertentu. Nonaktifkan pembatasan di Dashboard → Authentication → Sign In / Providers → Email.";
+      return pesanAuth(s);
+    }
 
     function mapProfil(p, email) {
       return { id: p.id, nama: p.full_name, email: email, telepon: p.phone, peran: p.role, kota: p.city, bio: p.bio, terverifikasi: p.is_verified, aktif: p.is_active, avatar_url: p.avatar_url };
@@ -711,12 +720,19 @@ window.SB = window.SB || {};
       client: sb, /* akses channel realtime utk dashboard admin */
       async currentUser() { try { return await meRow(); } catch (e) { return null; } },
       async signUp({ nama, email, telepon, sandi, peran }) {
-        const { data, error } = await sb.auth.signUp({
-          email, password: sandi,
-          options: { data: { full_name: nama, phone: telepon || "", role: peran || "donatur" } }
-        });
-        if (error) throw new Error(error.message);
-        if (data && data.user && !data.session) throw new Error("Pendaftaran berhasil. Silakan cek email untuk konfirmasi, lalu masuk.");
+        let res;
+        try {
+          res = await sb.auth.signUp({
+            email, password: sandi,
+            options: { data: { full_name: nama, phone: telepon || "", role: peran || "donatur" } }
+          });
+        } catch (e) {
+          throw new Error("Gagal menghubungi Supabase (" + (e && e.message ? e.message : "jaringan") + "). Periksa koneksi internet atau Project URL di menu koneksi.");
+        }
+        if (res.error) throw new Error(pesanDaftar(res.error.message));
+        if (res.data && res.data.user && !res.data.session) {
+          throw new Error("Pendaftaran berhasil — akun menunggu konfirmasi email. Cek kotak masuk DAN folder Spam/Promosi dari Supabase, lalu masuk. Email tidak tiba dalam ±10 menit? Layanan email bawaan Supabase sangat terbatas (maks ±2 email/jam dan hanya mengirim ke anggota tim proyek). Solusi: (1) Tercepat — admin buka Dashboard Supabase → Authentication → Users → pilih akun → menu titik tiga → Confirm email. (2) Permanen — nonaktifkan 'Confirm email' di Authentication → Sign In / Providers, atau pasang SMTP kustom di Authentication → Emails → SMTP Settings (panduan lengkap: README bagian 10).");
+        }
         return meRow();
       },
       async signIn(email, sandi) {

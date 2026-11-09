@@ -313,6 +313,49 @@ Sejak v1.5, saat login aplikasi otomatis membuat baris `profiles` dari metadata
 akun (nama dari metadata, peran bawaan `donatur`). Pastikan kebijakan
 `p_profiles_insert` ada — cukup jalankan `sql/update_fix_login.sql` sekali.
 
+### Daftar berhasil, tetapi email konfirmasi tidak pernah datang
+
+Gejalanya: form pendaftaran menampilkan "Pendaftaran berhasil. Silakan cek
+email untuk konfirmasi", tetapi email tidak pernah masuk (juga di folder
+spam), sehingga akun belum bisa login. Ini **bukan bug aplikasi** — penyebabnya
+di sisi Supabase: layanan email **bawaan** Supabase (yang aktif selama SMTP
+kustom belum dipasang) sangat dibatasi:
+
+- hanya mengirim **maksimal ±2 email per jam**, dan
+- sejak 2024 hanya mengirim ke **anggota tim proyek** (email yang dipakai
+  mendaftar akun supabase.com) — keamanan anti-spam.
+
+Pendaftar dengan email lain (mis. konsultansharika@gmail.com) → akun berhasil
+dibuat di Authentication → Users, tetapi email konfirmasinya **dibuang tanpa
+pemberitahuan**.
+
+**Solusi 1 — tercepat, agar akun yang sudah terlanjur daftar bisa masuk:**
+Dashboard Supabase → **Authentication → Users** → cari email pendaftar →
+klik menu **titik tiga (⋯)** di baris tersebut → **Confirm email**. Setelah
+itu akun bisa langsung login normal tanpa email.
+
+**Solusi 2 — matikan kewajiban konfirmasi email** (praktis untuk tahap awal):
+Dashboard → **Authentication → Sign In / Providers → Email** → nonaktifkan
+**Confirm email** → Save. Pendaftar baru langsung mendapat sesi aktif tanpa
+email, dan akun lama yang belum terkonfirmasi pun bisa langsung masuk.
+
+**Solusi 3 — pasang SMTP kustom** (solusi sebenarnya untuk produksi, email
+benar-benar terkirim ke siapa pun): Dashboard → **Authentication → Emails →
+SMTP Settings** → Enable Custom SMTP. Contoh gratis:
+
+| Penyedia | Host | Port | Catatan |
+|---|---|---|---|
+| Brevo (300 email/hari) | `smtp-relay.brevo.com` | 587 | daftar brevo.com, verifikasi domain pengirim |
+| Resend (3.000/bulan) | `smtp.resend.com` | 587 | perlu domain sendiri |
+| Gmail App Password | `smtp.gmail.com` | 587 | aktifkan 2FA lalu buat App Password 16 karakter |
+
+Isi Sender email/name, Host, Port, Username, Password → Save. Mulai saat itu
+email konfirmasi, reset kata sandi, dan magic link terkirim sungguhan.
+
+> Tips: pastikan juga email yang diketik saat daftar lengkap —
+> `nama@gmail.com`, bukan `nama@gmail` (tanpa akhiran). Form aplikasi sudah
+> menolak format tanpa akhiran domain.
+
 ### Alur notifikasi donasi — masuk ke mana?
 
 Semua notifikasi Saling Bantu berupa **notifikasi dalam aplikasi** (lonceng di
