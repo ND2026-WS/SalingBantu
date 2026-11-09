@@ -8,6 +8,13 @@
 --   - Verifikasi oleh admin/pengelola (saldo dana otomatis)
 --   - Penyaluran ke mustahik (8 asnaf + program yayasan)
 --   - Fungsi statistik ziswaf_stats() untuk transparansi publik
+--
+-- PEMBARUAN v2 (PENTING — wajib dijalankan ulang bila versi lama sudah jalan):
+--   Memperbaiki error "duplicate key value violates unique constraint
+--   ziswaf_transactions_kode_key". Penyebab: data contoh memakai kode
+--   ZW-2026-0001..0008 tanpa menggeser counter, sehingga transaksi nyata
+--   pertama mendapat nomor 1 lagi dan menabrak kode yang sudah ada.
+--   Versi baru: trigger kode anti-bentrok + counter diselaraskan otomatis.
 -- Cara pakai: Supabase Dashboard -> SQL Editor -> New query ->
 --   tempel seluruh isi file ini -> Run.
 -- (Database baru tidak butuh file ini; cukup supabase_schema.sql
@@ -95,11 +102,29 @@ create index if not exists idx_ziswaf_tx_donor   on public.ziswaf_transactions (
 create index if not exists idx_ziswaf_sal_jenis  on public.ziswaf_distributions (jenis, distributed_at desc);
 
 -- 20e. Kode otomatis + isi nama pemberi
+--      Anti-bentrok: nomor diambil dari counter, tetapi SELALU dibandingkan
+--      dengan nomor terbesar yang sudah terpakai di tabel. Bila masih
+--      bertabrakan, nomor dinaikkan sampai menemukan kode yang bebas.
 create or replace function public.fn_ziswaf_tx_code() returns trigger
 language plpgsql as $$
+declare
+  n int;
+  k text;
 begin
   if new.kode is null or new.kode = '' then
-    new.kode := 'ZW-' || to_char(now(), 'YYYY') || '-' || lpad(nextval('ziswaf_tx_seq')::text, 4, '0');
+    n := greatest(
+      nextval('ziswaf_tx_seq'),
+      coalesce((select max(substring(t.kode from '[0-9]+$')::bigint)
+                from public.ziswaf_transactions t
+                where t.kode like 'ZW-%'), 0) + 1
+    );
+    k := 'ZW-' || to_char(now(), 'YYYY') || '-' || lpad(n::text, 4, '0');
+    while exists (select 1 from public.ziswaf_transactions x where x.kode = k) loop
+      n := n + 1;
+      k := 'ZW-' || to_char(now(), 'YYYY') || '-' || lpad(n::text, 4, '0');
+    end loop;
+    perform setval('ziswaf_tx_seq', n);
+    new.kode := k;
   end if;
   if new.donor_name = '' and new.donor_id is not null then
     select full_name into new.donor_name from public.profiles where id = new.donor_id;
@@ -112,9 +137,24 @@ for each row execute function public.fn_ziswaf_tx_code();
 
 create or replace function public.fn_ziswaf_sal_code() returns trigger
 language plpgsql as $$
+declare
+  n int;
+  k text;
 begin
   if new.kode is null or new.kode = '' then
-    new.kode := 'ZS-' || to_char(now(), 'YYYY') || '-' || lpad(nextval('ziswaf_sal_seq')::text, 4, '0');
+    n := greatest(
+      nextval('ziswaf_sal_seq'),
+      coalesce((select max(substring(x.kode from '[0-9]+$')::bigint)
+                from public.ziswaf_distributions x
+                where x.kode like 'ZS-%'), 0) + 1
+    );
+    k := 'ZS-' || to_char(now(), 'YYYY') || '-' || lpad(n::text, 4, '0');
+    while exists (select 1 from public.ziswaf_distributions x where x.kode = k) loop
+      n := n + 1;
+      k := 'ZS-' || to_char(now(), 'YYYY') || '-' || lpad(n::text, 4, '0');
+    end loop;
+    perform setval('ziswaf_sal_seq', n);
+    new.kode := k;
   end if;
   return new;
 end $$;
@@ -297,3 +337,17 @@ insert into public.ziswaf_distributions (kode, jenis, mustahik, penerima, recipi
   ('ZS-2026-0002','sedekah','beasiswa','12 siswa yatim & dhuafa', 12, 'Paket alat tulis + seragam', 350000, 'Penyaluran awal semester.', now() - interval '7 months' + interval '3 days'),
   ('ZS-2026-0003','infaq','operasional','Masjid sekolah', 1, 'Uang operasional (listrik, air, kebersihan)', 150000, 'Tagihan bulan berjalan.', now() - interval '7 months' + interval '16 days')
 on conflict (kode) do nothing;
+
+-- 20m. Selaraskan ulang counter dengan kode yang sudah terpakai.
+--      WAJIB: data contoh di atas memakai kode ZW-2026-0001..0008 dan
+--      ZS-2026-0001..0003 secara langsung tanpa menyentuh counter. Tanpa
+--      langkah ini, transaksi nyata pertama mendapat nomor 1 lagi dan gagal
+--      dengan "duplicate key value violates unique constraint ..._kode_key".
+select setval('ziswaf_tx_seq',
+  greatest((select coalesce(max(substring(kode from '[0-9]+$')::bigint), 0)
+            from public.ziswaf_transactions where kode like 'ZW-%'), 0) + 1,
+  false);
+select setval('ziswaf_sal_seq',
+  greatest((select coalesce(max(substring(kode from '[0-9]+$')::bigint), 0)
+            from public.ziswaf_distributions where kode like 'ZS-%'), 0) + 1,
+  false);

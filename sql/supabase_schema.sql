@@ -526,8 +526,21 @@ for each row execute function public.fn_donation_created();
 
 create or replace function public.fn_donation_verified() returns trigger
 language plpgsql security definer set search_path = public as $$
-declare need numeric; collected numeric; owner uuid; r record;
+declare need numeric; collected numeric; owner uuid; r record; delta numeric;
 begin
+  /* Dana terkumpul program OTOMATIS mengikuti status donasi.
+     Aturan: donasi bernilai > 0 yang statusnya 'terkonfirmasi' ATAU
+     'tersalurkan' dihitung masuk funds_collected. Selisih (delta) dihitung
+     dari kondisi lama vs baru, sehingga aman untuk semua transisi:
+     - menunggu -> terkonfirmasi   : dana NAIK sebesar nominal
+     - terkonfirmasi -> ditolak    : dana TURUN kembali (dibatalkan)
+     - terkonfirmasi <-> tersalurkan : dana tetap (tetap terhitung)
+     - verifikasi ulang dua kali   : tidak dobel hitung (delta = 0) */
+  delta := (case when new.status in ('terkonfirmasi','tersalurkan')
+                   and new.request_id is not null and new.amount > 0 then new.amount else 0 end)
+         - (case when old.status in ('terkonfirmasi','tersalurkan')
+                   and old.request_id is not null and old.amount > 0 then old.amount else 0 end);
+
   if new.status = 'terkonfirmasi' and old.status is distinct from 'terkonfirmasi' then
     update public.donations set verified_at = now(), verified_by = auth.uid() where id = new.id;
     perform public.fn_audit(auth.uid(), 'verify', 'donations', new.id,
@@ -535,22 +548,31 @@ begin
     perform public.fn_notify(new.donor_id, 'donasi_tercatat', 'Donasi terkonfirmasi',
       'Donasi Anda (' || new.receipt_number || ') telah dikonfirmasi. Kuitansi digital tersedia di Riwayat Donasi.',
       'dashboard.html#donasi');
-    if new.request_id is not null and new.amount > 0 then
-      update public.assistance_requests
-      set funds_collected = funds_collected + new.amount
+  end if;
+
+  if new.status = 'ditolak' and old.status is distinct from 'ditolak' then
+    perform public.fn_audit(auth.uid(), 'verify_reject', 'donations', new.id,
+      jsonb_build_object('kuitansi', old.receipt_number, 'dari', old.status, 'ke', 'ditolak'));
+    perform public.fn_notify(new.donor_id, 'donasi_tercatat', 'Donasi ditolak',
+      'Donasi ' || old.receipt_number || ' tidak lolos verifikasi. Hubungi pengelola yayasan untuk info lebih lanjut.',
+      'dashboard.html#donasi');
+  end if;
+
+  if delta <> 0 and new.request_id is not null then
+    update public.assistance_requests
+      set funds_collected = greatest(0, funds_collected + delta)
       where id = new.request_id
       returning amount_needed, funds_collected, user_id into need, collected, owner;
-      if need > 0 and collected >= need then
-        update public.assistance_requests set status = 'bantuan_terpenuhi'
-        where id = new.request_id and status in ('dipublikasikan','sedang_dibantu');
-        perform public.fn_notify(owner, 'target_tercapai', 'Target tercapai!',
-          'Target kebutuhan pengajuanmu telah terpenuhi. Terima kasih para sahabat bantu!',
-          'dashboard.html#pengajuan');
-        for r in select id from public.profiles where role = 'admin' and is_active loop
-          perform public.fn_notify(r.id, 'target_tercapai', 'Target tercapai',
-            'Target pengajuan terpenuhi. Jangan lupa catat penyaluran & laporan akhir.', 'admin.html#donasi');
-        end loop;
-      end if;
+    if delta > 0 and need > 0 and collected >= need then
+      update public.assistance_requests set status = 'bantuan_terpenuhi'
+      where id = new.request_id and status in ('dipublikasikan','sedang_dibantu');
+      perform public.fn_notify(owner, 'target_tercapai', 'Target tercapai!',
+        'Target kebutuhan pengajuanmu telah terpenuhi. Terima kasih para sahabat bantu!',
+        'dashboard.html#pengajuan');
+      for r in select id from public.profiles where role = 'admin' and is_active loop
+        perform public.fn_notify(r.id, 'target_tercapai', 'Target tercapai',
+          'Target pengajuan terpenuhi. Jangan lupa catat penyaluran & laporan akhir.', 'admin.html#donasi');
+      end loop;
     end if;
   end if;
   return new;
@@ -558,6 +580,33 @@ end $$;
 drop trigger if exists trg_donation_verified on public.donations;
 create trigger trg_donation_verified after update of status on public.donations
 for each row execute function public.fn_donation_verified();
+
+/* Nominal donasi yang SUDAH terkonfirmasi diedit admin -> dana terkumpul
+   program ikut disesuaikan (selisih nominal), tanpa menyentuh status. */
+create or replace function public.fn_donation_amount_changed() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare need numeric; collected numeric; owner uuid;
+begin
+  if new.amount is distinct from old.amount
+     and old.status = new.status and new.status in ('terkonfirmasi','tersalurkan')
+     and new.request_id is not null then
+    update public.assistance_requests
+      set funds_collected = greatest(0, funds_collected + (new.amount - old.amount))
+      where id = new.request_id
+      returning amount_needed, funds_collected, user_id into need, collected, owner;
+    if need > 0 and collected >= need then
+      update public.assistance_requests set status = 'bantuan_terpenuhi'
+      where id = new.request_id and status in ('dipublikasikan','sedang_dibantu');
+      perform public.fn_notify(owner, 'target_tercapai', 'Target tercapai!',
+        'Target kebutuhan pengajuanmu telah terpenuhi. Terima kasih para sahabat bantu!',
+        'dashboard.html#pengajuan');
+    end if;
+  end if;
+  return new;
+end $$;
+drop trigger if exists trg_donation_amount on public.donations;
+create trigger trg_donation_amount after update of amount on public.donations
+for each row execute function public.fn_donation_amount_changed();
 
 -- ============================================================
 -- BAGIAN 14 — TRIGGER PENYALURAN: dana tersalur + notifikasi
@@ -1035,11 +1084,30 @@ create index if not exists idx_ziswaf_tx_donor   on public.ziswaf_transactions (
 create index if not exists idx_ziswaf_sal_jenis  on public.ziswaf_distributions (jenis, distributed_at desc);
 
 -- 20e. Kode otomatis + isi nama pemberi
+--      Anti-bentrok: nomor diambil dari counter, tetapi SELALU dibandingkan
+--      dengan nomor terbesar yang sudah terpakai di tabel. Bila masih
+--      bertabrakan, nomor dinaikkan sampai menemukan kode yang bebas.
+--      (Mencegah error "duplicate key ... ziswaf_transactions_kode_key".)
 create or replace function public.fn_ziswaf_tx_code() returns trigger
 language plpgsql as $$
+declare
+  n int;
+  k text;
 begin
   if new.kode is null or new.kode = '' then
-    new.kode := 'ZW-' || to_char(now(), 'YYYY') || '-' || lpad(nextval('ziswaf_tx_seq')::text, 4, '0');
+    n := greatest(
+      nextval('ziswaf_tx_seq'),
+      coalesce((select max(substring(t.kode from '[0-9]+$')::bigint)
+                from public.ziswaf_transactions t
+                where t.kode like 'ZW-%'), 0) + 1
+    );
+    k := 'ZW-' || to_char(now(), 'YYYY') || '-' || lpad(n::text, 4, '0');
+    while exists (select 1 from public.ziswaf_transactions x where x.kode = k) loop
+      n := n + 1;
+      k := 'ZW-' || to_char(now(), 'YYYY') || '-' || lpad(n::text, 4, '0');
+    end loop;
+    perform setval('ziswaf_tx_seq', n);
+    new.kode := k;
   end if;
   if new.donor_name = '' and new.donor_id is not null then
     select full_name into new.donor_name from public.profiles where id = new.donor_id;
@@ -1052,9 +1120,24 @@ for each row execute function public.fn_ziswaf_tx_code();
 
 create or replace function public.fn_ziswaf_sal_code() returns trigger
 language plpgsql as $$
+declare
+  n int;
+  k text;
 begin
   if new.kode is null or new.kode = '' then
-    new.kode := 'ZS-' || to_char(now(), 'YYYY') || '-' || lpad(nextval('ziswaf_sal_seq')::text, 4, '0');
+    n := greatest(
+      nextval('ziswaf_sal_seq'),
+      coalesce((select max(substring(x.kode from '[0-9]+$')::bigint)
+                from public.ziswaf_distributions x
+                where x.kode like 'ZS-%'), 0) + 1
+    );
+    k := 'ZS-' || to_char(now(), 'YYYY') || '-' || lpad(n::text, 4, '0');
+    while exists (select 1 from public.ziswaf_distributions x where x.kode = k) loop
+      n := n + 1;
+      k := 'ZS-' || to_char(now(), 'YYYY') || '-' || lpad(n::text, 4, '0');
+    end loop;
+    perform setval('ziswaf_sal_seq', n);
+    new.kode := k;
   end if;
   return new;
 end $$;
@@ -1236,3 +1319,17 @@ insert into public.ziswaf_distributions (kode, jenis, mustahik, penerima, recipi
   ('ZS-2026-0002','sedekah','beasiswa','12 siswa yatim & dhuafa', 12, 'Paket alat tulis + seragam', 350000, 'Penyaluran awal semester.', now() - interval '7 months' + interval '3 days'),
   ('ZS-2026-0003','infaq','operasional','Masjid sekolah', 1, 'Uang operasional (listrik, air, kebersihan)', 150000, 'Tagihan bulan berjalan.', now() - interval '7 months' + interval '16 days')
 on conflict (kode) do nothing;
+
+-- 20m. Selaraskan ulang counter dengan kode yang sudah terpakai.
+--      WAJIB: data contoh di atas memakai kode ZW-2026-0001..0008 dan
+--      ZS-2026-0001..0003 secara langsung tanpa menyentuh counter. Tanpa
+--      langkah ini, transaksi nyata pertama mendapat nomor 1 lagi dan gagal
+--      dengan "duplicate key value violates unique constraint ..._kode_key".
+select setval('ziswaf_tx_seq',
+  greatest((select coalesce(max(substring(kode from '[0-9]+$')::bigint), 0)
+            from public.ziswaf_transactions where kode like 'ZW-%'), 0) + 1,
+  false);
+select setval('ziswaf_sal_seq',
+  greatest((select coalesce(max(substring(kode from '[0-9]+$')::bigint), 0)
+            from public.ziswaf_distributions where kode like 'ZS-%'), 0) + 1,
+  false);

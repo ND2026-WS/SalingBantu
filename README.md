@@ -85,8 +85,11 @@ saling-bantu/
 ├── js/beranda.js …         Logika per halaman (termasuk ziswaf.js)
 ├── sql/supabase_schema.sql Skema database lengkap (BAGIAN 1–20, jalankan
 │                           di SQL Editor)
-├── sql/update_cms_realtime.sql   Pembaruan utk database lama (CMS + realtime)
-└── sql/update_ziswaf.sql         Pembaruan utk database lama (modul ZISWAF)
+├── sql/update_*.sql        Pembaruan utk database lama: CMS+realtime,
+│                           fix login, fix trigger, admin program,
+│                           ZISWAF (+ fix kode bentrok),
+│                           dana terkumpul otomatis
+└── README.md               Panduan ini
 ```
 
 ## 4. Alur Utama Aplikasi
@@ -302,10 +305,10 @@ tidak terbaca, sehingga akun yang terdaftar di Supabase memang tidak dikenali
 
 ### Jumlah file di dalam zip
 
-Paket `saling-bantu.zip` berisi **36 file + 4 folder** = **40 entri** (folder:
+Paket `saling-bantu.zip` berisi **37 file + 4 folder** = **41 entri** (folder:
 `saling-bantu/`, `css/`, `js/`, `sql/`). Penampil zip menghitung entri folder
 sebagai "file", sedangkan file manager (Windows Explorer) hanya menampilkan
-36 file — keduanya normal, tidak ada file yang hilang.
+37 file — keduanya normal, tidak ada file yang hilang.
 
 ### Akun dibuat langsung dari Dashboard Supabase tidak bisa masuk
 
@@ -400,6 +403,28 @@ kanan atas), bukan email. Untuk setiap konfirmasi donasi dari website
 > `sql/update_admin_program.sql` agar notifikasi poin 3 aktif — trigger
 > `fn_donation_created()` kini juga mengabari semua admin aktif.
 
+### Apakah dana terkumpul program naik otomatis setelah donasi diverifikasi?
+
+**Ya, otomatis.** Progres di kartu program (Cari Bantuan, Beranda, dashboard,
+laporan admin) dihitung dari kolom `funds_collected` pada tabel program, dan
+kolom itu diubah **langsung oleh trigger database** saat admin menekan
+**Konfirmasi** di menu Donasi — tanpa input manual apa pun:
+
+1. Donatur memberi bantuan → donasi tercatat berstatus *menunggu konfirmasi*
+   (belum dihitung; kartu program masih menampilkan angka lama).
+2. Admin konfirmasi → `funds_collected` **naik sebesar nominal** → progres
+   kartu berubah seketika saat halaman dimuat ulang.
+3. Target tercapai → program otomatis menjadi *Bantuan Terpenuhi* + notifikasi
+   ke pemilik pengajuan dan semua admin.
+4. Donasi yang sudah terkonfirmasi **dibatalkan/ditolak** → dana **turun
+   kembali**; admin **mengubah nominal** donasi terkonfirmasi → dana ikut
+   menyesuaikan (selisih). Verifikasi ulang tidak pernah menghitung dobel.
+5. Donasi barang/tenaga dihitung sebagai **nilai setara uang** yang diisi admin.
+
+> Database yang sudah berjalan: jalankan **`sql/update_program_progress.sql`**
+> (SQL Editor → Run) supaya poin 4–5 aktif. Aman dijalankan berulang.
+> Database baru sudah lengkap di `supabase_schema.sql`.
+
 ### Muncul "Could not find the 'beneficiary_name' column of 'assistance_requests' in the schema cache"
 
 Error ini muncul saat **Tambah Program** (atau form *Ajukan Bantuan*) ketika
@@ -416,6 +441,32 @@ seluruh isi `sql/update_admin_program.sql`, lalu klik **Run**. File itu akan:
 
 Setelah selesai, muat ulang halaman aplikasi dan coba lagi — aman dijalankan
 berulang, tidak mengubah data yang sudah ada.
+
+### Muncul "duplicate key value violates unique constraint 'ziswaf_transactions_kode_key'" saat kirim ZISWAF
+
+Error ini muncul di halaman ZISWAF (`ziswaf.html`) ketika donatur mengirim
+*Infaq/Zakat/Sedekah/Wakaf* lewat tombol **"Kirim Niat Kebaikan"**.
+**Penyebab:** pada versi SQL sebelumnya, data contoh memakai kode transaksi
+`ZW-2026-0001` s.d. `ZW-2026-0008` secara langsung **tanpa menggeser counter**
+(`ziswaf_tx_seq`), sehingga transaksi nyata **yang pertama** mendapat nomor 1
+lagi → kode menabrak milik data contoh → ditolak database.
+
+**Solusi:** buka **Dashboard Supabase → SQL Editor → New query**, tempel
+seluruh isi `sql/update_ziswaf.sql` (versi terbaru), lalu klik **Run**.
+File versi baru melakukan 3 hal:
+
+1. **Trigger kode anti-bentrok** — nomor baru selalu dibandingkan dengan
+   nomor terbesar yang sudah terpakai di tabel; bila masih bertabrakan,
+   nomor dinaikkan sampai menemukan kode yang bebas (`while exists`).
+2. **Counter diselaraskan otomatis** (`setval`) dengan kode yang sudah ada,
+   sehingga transaksi berikutnya langsung mendapat `ZW-2026-0009` dst.
+3. Berlaku juga untuk kode penyaluran (`ZS-...`, tabel
+   `ziswaf_distributions`).
+
+Sebagai lapisan tambahan, aplikasi kini otomatis **mengulang pengiriman
+maksimal 3 kali** bila kena *duplicate key*, dan pesan galatnya sudah
+diterjemahkan ke Bahasa Indonesia dengan arahan file yang harus dijalankan.
+Aman dijalankan berulang, tidak mengubah data yang sudah ada.
 
 ### Tambah Program dari Panel Admin (fitur baru)
 

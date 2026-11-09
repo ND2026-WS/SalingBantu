@@ -132,11 +132,20 @@ window.SB = window.SB || {};
     function logStatus(r, dari, ke, oleh, catatan) {
       db.logs.unshift({ id: uid(), requestId: r.id, dari, ke, oleh, catatan, tanggal: now() });
     }
-    function terapkanDonasi(d) {
-      const r = db.requests.find((x) => x.id === d.requestId);
-      if (!r || d.jenis !== "finansial" || !(d.jumlah > 0)) return;
-      r.terkumpul += d.jumlah;
-      if (r.kebutuhan > 0 && r.terkumpul >= r.kebutuhan) {
+    /* dampak donasi terhadap dana terkumpul program:
+       donasi terkonfirmasi/tersalurkan bernilai > 0 dihitung (finansial penuh,
+       barang/tenaga/jaringan dihitung dari nilai setara yang diisi admin).
+       Fungsi menghitung SELISIH dampak kondisi lama vs baru, sehingga aman
+       untuk semua perubahan: verifikasi, pembatalan setelah terkonfirmasi,
+       edit nominal, dan perubahan status dari form edit admin. */
+    function selaraskanDonasi(lama, baru) {
+      const dihitung = (d) => d && (d.status === "terkonfirmasi" || d.status === "tersalurkan") && d.requestId && d.jumlah > 0;
+      const delta = (dihitung(baru) ? baru.jumlah : 0) - (dihitung(lama) ? lama.jumlah : 0);
+      if (!delta) return;
+      const r = db.requests.find((x) => x.id === (baru.requestId || (lama && lama.requestId)));
+      if (!r) return;
+      r.terkumpul = Math.max(0, r.terkumpul + delta);
+      if (delta > 0 && r.kebutuhan > 0 && r.terkumpul >= r.kebutuhan) {
         if (["dipublikasikan", "sedang_dibantu"].includes(r.status)) setStatus(r, "bantuan_terpenuhi", "Tim Saling Bantu", "Target tercapai otomatis");
         notify(r.userId, "target_tercapai", "Target tercapai!", "Kebutuhan pengajuanmu telah terpenuhi. Terima kasih para sahabat bantu!", "dashboard.html#pengajuan");
       }
@@ -231,7 +240,7 @@ window.SB = window.SB || {};
       },
       async updateDonationAdmin(id, patch) {
         const d = db.donations.find((x) => x.id === id); if (!d) throw new Error("Donasi tidak ditemukan.");
-        const lama = { jenis: d.jenis, status: d.status, jumlah: d.jumlah };
+        const lama = { status: d.status, jumlah: d.jumlah, requestId: d.requestId };
         if (patch.donorNama != null) d.donorNama = patch.donorNama;
         if (patch.anonim != null) d.anonim = !!patch.anonim;
         if (patch.jenis != null) d.jenis = patch.jenis;
@@ -239,11 +248,9 @@ window.SB = window.SB || {};
         if (patch.pesan != null) d.pesan = patch.pesan;
         if (patch.status != null) d.status = patch.status;
         if (patch.jumlah != null && !isNaN(Number(patch.jumlah)) && Number(patch.jumlah) >= 0) d.jumlah = Number(patch.jumlah);
-        // sesuaikan dana terkumpul proyek bila donasi finansial terkonfirmasi berubah nominalnya
-        if (lama.jenis === "finansial" && lama.status === "terkonfirmasi" && d.jumlah !== lama.jumlah) {
-          const r = db.requests.find((x) => x.id === d.requestId);
-          if (r) r.terkumpul = Math.max(0, r.terkumpul + (d.jumlah - lama.jumlah));
-        }
+        // dana terkumpul program ikut menyesuaikan otomatis untuk SEMUA perubahan
+        // (status terkonfirmasi masuk/keluar, nominal berubah, jenis berubah)
+        selaraskanDonasi(lama, d);
         db.audit.unshift({ id: uid(), aktor: (me() || {}).nama || "admin", aksi: "update", entitas: "donations", entitasId: id, detail: { kuitansi: d.kuitansi }, tanggal: now() });
         saveDb(db); return d;
       },
@@ -378,8 +385,11 @@ window.SB = window.SB || {};
         const d = db.donations.find((x) => x.id === id);
         if (!d) throw new Error("Donasi tidak ditemukan.");
         const u = me(); if (!u || u.peran !== "admin") throw new Error("Hanya admin.");
+        const lama = { status: d.status, jumlah: d.jumlah, requestId: d.requestId };
         d.status = ok ? "terkonfirmasi" : "ditolak";
-        if (ok) terapkanDonasi(d);
+        // dana terkumpul program naik otomatis saat disetujui, turun kembali bila
+        // donasi yang sudah terkonfirmasi dibatalkan; verifikasi ulang tidak dobel hitung
+        selaraskanDonasi(lama, d);
         notify(d.donorId, "donasi_tercatat", ok ? "Donasi terkonfirmasi" : "Donasi ditolak", ok ? "Donasi Anda (" + d.kuitansi + ") telah dikonfirmasi. Kuitansi digital tersedia di Riwayat Donasi." : "Donasi " + d.kuitansi + " ditolak. " + (catatan || ""), "dashboard.html#donasi");
         saveDb(db); return d;
       },
@@ -666,6 +676,11 @@ window.SB = window.SB || {};
       const miss = s.match(/could not find the '([^']+)' column of '([^']+)'/i);
       if (miss) return "Skema database belum diperbarui: kolom '" + miss[1] + "' tidak ada di tabel " + miss[2] + ". Solusi: buka Dashboard Supabase → SQL Editor → New query, tempel seluruh isi file sql/update_admin_program.sql, lalu klik Run. Setelah selesai, muat ulang halaman ini dan coba lagi.";
       if (/schema cache/i.test(s)) return "Cache skema Supabase kedaluwarsa. Buka Dashboard Supabase → SQL Editor dan jalankan: notify pgrst, 'reload schema'; lalu muat ulang halaman.";
+      // duplicate key pada kode transaksi ZISWAF — trigger pembuat kode versi lama
+      // memakai counter yang tidak pernah digeser oleh data contoh
+      if (/ziswaf_transactions_kode_key|ziswaf_distributions_kode_key/i.test(s)) return "Kode transaksi ZISWAF bentrok dengan kode yang sudah ada (bug trigger versi lama). Solusi: buka Dashboard Supabase → SQL Editor → New query, tempel seluruh isi file sql/update_ziswaf.sql (versi terbaru), klik Run, lalu kirim ZISWAF sekali lagi.";
+      // duplicate key umum — coba ulang biasanya berhasil karena kode baru diambil
+      if (/duplicate key value violates unique constraint/i.test(s)) return "Data bentrok: sudah ada catatan dengan kode/kunci yang sama. Muat ulang halaman lalu coba sekali lagi; bila masih muncul, hubungi admin.";
       // konflik nama di trigger database (versi schema lama) — mis. 'column reference "title" is ambiguous'
       if (/column reference .*is ambiguous/i.test(s)) return "Bug trigger database versi lama (konflik penamaan kolom). Solusi: buka Dashboard Supabase → SQL Editor → New query, tempel seluruh isi file sql/update_fix_trigger.sql, klik Run, lalu coba lagi.";
       return s;
@@ -990,8 +1005,17 @@ window.SB = window.SB || {};
           jumlah: Number(data.jumlah) || 0, item_description: data.barangDetail || "",
           metode: data.metode || "transfer_bank", note: data.catatan || ""
         };
-        const { data: row, error } = await sb.from("ziswaf_transactions").insert(ins).select().single();
-        if (error) throw new Error(error.message);
+        /* kode transaksi dibuat oleh trigger database. Bila kode bentrok
+           (duplicate key, database versi lama), ulangi maksimal 3 kali —
+           tiap percobaan mengambil nomor baru. Kesalahan lain langsung dilempar. */
+        let row = null, errTerakhir = null;
+        for (let coba = 0; coba < 3; coba++) {
+          const res = await sb.from("ziswaf_transactions").insert(ins).select().single();
+          if (!res.error) { row = res.data; break; }
+          errTerakhir = res.error;
+          if (!/duplicate key/i.test(res.error.message || "")) break;
+        }
+        if (!row) throw new Error(pesanDb(errTerakhir && errTerakhir.message));
         return mapZiswaf(row);
       },
       async updateZiswafAdmin(id, patch) {
@@ -1033,13 +1057,21 @@ window.SB = window.SB || {};
       },
       async createZiswafSalur(data) {
         const u = await meRow(); if (!u || !["admin", "pengelola"].includes(u.peran)) throw new Error("Hanya admin/pengelola.");
-        const { data: row, error } = await sb.from("ziswaf_distributions").insert({
+        const ins = {
           jenis: data.jenis, mustahik: data.mustahik || "kemanusiaan",
           penerima: data.penerima || "", recipient_count: Number(data.jumlahPenerima) || 0,
           bentuk: data.bentuk || "Uang", amount: Number(data.nominal) || 0,
           note: data.catatan || "", distributed_by: u.id
-        }).select().single();
-        if (error) throw new Error(error.message);
+        };
+        /* sama seperti createZiswaf: ulangi bila kode penyaluran bentrok */
+        let row = null, errTerakhir = null;
+        for (let coba = 0; coba < 3; coba++) {
+          const res = await sb.from("ziswaf_distributions").insert(ins).select().single();
+          if (!res.error) { row = res.data; break; }
+          errTerakhir = res.error;
+          if (!/duplicate key/i.test(res.error.message || "")) break;
+        }
+        if (!row) throw new Error(pesanDb(errTerakhir && errTerakhir.message));
         return mapZiswafSalur(row);
       },
       async updateZiswafSalurAdmin(id, patch) {
