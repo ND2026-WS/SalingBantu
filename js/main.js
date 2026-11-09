@@ -159,5 +159,16 @@
     renderHeader();
     renderFooter();
     if (SB.terapkanKonten) SB.terapkanKonten();
+
+    /* Realtime: titik notifikasi ikut segar saat ada data baru
+       (donasi masuk, pengajuan diverifikasi, pengumuman, dsb). */
+    if (SB.watchData) {
+      let jadwal = null;
+      SB.watchData((info) => {
+        if (info && info.tabel && info.tabel !== "notifications") return;
+        clearTimeout(jadwal);
+        jadwal = setTimeout(() => refreshNotifDot(), 500);
+      });
+    }
   });
 })();

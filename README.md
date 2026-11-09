@@ -88,7 +88,8 @@ saling-bantu/
 ├── sql/update_*.sql        Pembaruan utk database lama: CMS+realtime,
 │                           fix login, fix trigger, admin program,
 │                           ZISWAF (+ fix kode bentrok),
-│                           dana terkumpul otomatis
+│                           dana terkumpul otomatis,
+│                           hapus data + realtime semua halaman
 └── README.md               Panduan ini
 ```
 
@@ -483,3 +484,54 @@ atau *Terverifikasi*. Semua pembuatan program tercatat di jejak audit.
   `is_pengelola()`), file itu juga menambahkan kolom `beneficiary_name`
   yang wajib ada untuk fitur ini. Database baru sudah lengkap di
   `supabase_schema.sql`.
+
+## 11. Tombol Hapus di Semua Menu + Data Realtime (v1.6)
+
+### Hapus data (admin & pengelola)
+
+Setiap menu Panel Admin kini memiliki tombol **Hapus** dengan dialog
+konfirmasi sebelum eksekusi:
+
+| Menu | Yang bisa dihapus | Dampak otomatis |
+| --- | --- | --- |
+| Manajemen Pengguna | Akun (khusus **admin**, bukan akun sendiri) | Donasi, pengajuan, notifikasi akun terkait ikut terhapus (kaskade) |
+| Manajemen Pengajuan | Program/pengajuan | Donasi tidak terhapus (kuitansi tetap di riwayat donatur), penyaluran & progres terhapus |
+| Manajemen Donasi | Donasi | Donasi terkonfirmasi dihapus → **dana terkumpul program otomatis berkurang** |
+| Modul ZISWAF | Penerimaan & penyaluran | Rekap dana & saldo jenis dana langsung menyesuaikan |
+| Manajemen Konten | Cerita + pengumuman | Cerita hilang dari halaman publik |
+| Isi Website | (Kembalikan Default per grup) | Teks kembali ke bawaan |
+
+Setiap penghapusan **tercatat di jejak audit** (menu Laporan). Menu
+Statistik/Realtime/Laporan bersifat baca-only (log integritas tidak boleh
+dihapus dari UI).
+
+**Database lama wajib menjalankan `sql/update_delete_realtime.sql`** —
+file itu: (1) menyelaraskan kebijakan RLS agar admin **dan pengelola**
+dapat edit/hapus pada donasi, penyaluran, cerita, kegiatan, dan komunitas
+(penghapusan akun tetap khusus admin); (2) memasang trigger penghapus yang
+menjaga angka akurat — donasi terkonfirmasi dihapus → dana terkumpul
+berkurang, penyaluran dihapus → dana tersalur berkurang. Aman dijalankan
+berulang. Database baru (`supabase_schema.sql`) sudah memuat semuanya.
+
+Catatan: menghapus akun di Supabase hanya menghapus **profil** beserta datanya;
+akun autentikasinya tetap ada. Untuk menghapus total (termasuk email), admin
+buka Dashboard Supabase → Authentication → Users → pilih akun → hapus.
+
+### Data realtime — Supabase vs Mode Demo
+
+- **Terhubung Supabase**: semua halaman (beranda, cari, ZISWAF, transparansi,
+  cerita, dashboard pengguna, panel admin) berlangganan **Supabase Realtime**
+  (`postgres_changes`, satu kanal bersama). Begitu ada perubahan — donasi baru
+  masuk, admin memverifikasi/menghapus, ZISWAF terverifikasi — daftar, kartu,
+  angka, dan rekap **memuat ulang otomatis dalam <1 detik** tanpa tombol
+  segarkan. Muat ulang otomatis dijeda bila ada modal terbuka agar tidak
+  mengganggu pengisian form.
+- **Mode Demo**: yang tampil adalah **data bawaan** (seed) yang tersimpan di
+  localStorage browser; perubahan data langsung tercermin di seluruh halaman
+  yang terbuka (termasuk lintas tab via event `storage`), tanpa Supabase.
+- Pengumuman platform kini tersimpan **global di tabel `site_content`** saat
+  terhubung Supabase (ikut realtime ke semua perangkat); di Mode Demo tetap
+  di localStorage browser ini.
+- Prasyarat realtime di database lama: jalankan
+  `sql/update_delete_realtime.sql` (mendaftarkan 17 tabel utama ke
+  publication `supabase_realtime`). Database baru sudah lengkap.

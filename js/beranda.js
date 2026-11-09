@@ -91,58 +91,79 @@
       "<div><h3>" + S.esc(m.label) + "</h3><p>" + S.esc(m.desc) + "</p>" +
       '<span class="sub-n">' + m.sub.length + " sub-kategori →</span></div></a>").join("");
 
-    /* Statistik & kartu dari store (data nyata ditambahkan di atas angka dasar CMS) */
-    try {
-      const stats = await S.store.platformStats().catch(() => null);
-      if (stats) {
-        const map = [
-          ["total_pengguna", "stat_pengguna"], ["total_pengajuan", "stat_pengajuan"], ["total_tersalur", "stat_tersalur"],
-          ["total_volunteer", "stat_volunteer"], ["total_komunitas", "stat_komunitas"]
-        ];
-        map.forEach(([k, kunci], i) => {
-          const el = document.querySelectorAll("#stats-grid b")[i];
-          const dasar = SB.teks ? Number(SB.teks(kunci)) || 0 : 0;
-          if (el && stats[k] > 0) el.dataset.hitung = stats[k] + dasar;
-        });
-      }
-    } catch (e) { /* pakai angka default */ }
-
     animasiAngka();
 
-    /* Kartu bantuan terbaru */
-    try {
-      const reqs = (await S.store.listRequests({ publikOnly: true })).slice(0, 6);
-      const grid = document.getElementById("req-grid");
-      if (!reqs.length) grid.innerHTML = S.kosong("Belum ada pengajuan yang dipublikasikan.", "package");
-      else grid.innerHTML = reqs.map(kartuPengajuan).join("");
-      grid.querySelectorAll("[data-detail]").forEach((b) =>
-        b.addEventListener("click", () => modalDetail(b.dataset.detail)));
-    } catch (e) {
-      document.getElementById("req-grid").innerHTML = S.kosong("Gagal memuat pengajuan: " + e.message, "package");
+    /* Semua bagian yang menampilkan data platform — dipanggil saat halaman
+       dibuka dan dipanggil ULANG otomatis setiap ada perubahan data
+       (realtime Supabase / Mode Demo) sehingga angka & kartu selalu terkini. */
+    async function muatDaftar() {
+      /* Statistik dari store (data nyata ditambahkan di atas angka dasar CMS) */
+      try {
+        const stats = await S.store.platformStats().catch(() => null);
+        if (stats) {
+          const map = [
+            ["total_pengguna", "stat_pengguna"], ["total_pengajuan", "stat_pengajuan"], ["total_tersalur", "stat_tersalur"],
+            ["total_volunteer", "stat_volunteer"], ["total_komunitas", "stat_komunitas"]
+          ];
+          map.forEach(([k, kunci], i) => {
+            const el = document.querySelectorAll("#stats-grid b")[i];
+            const dasar = SB.teks ? Number(SB.teks(kunci)) || 0 : 0;
+            if (el && stats[k] > 0) el.dataset.hitung = stats[k] + dasar;
+          });
+        }
+      } catch (e) { /* pakai angka default */ }
+
+      /* Kartu bantuan terbaru */
+      try {
+        const reqs = (await S.store.listRequests({ publikOnly: true })).slice(0, 6);
+        const grid = document.getElementById("req-grid");
+        if (!reqs.length) grid.innerHTML = S.kosong("Belum ada pengajuan yang dipublikasikan.", "package");
+        else grid.innerHTML = reqs.map(kartuPengajuan).join("");
+        grid.querySelectorAll("[data-detail]").forEach((b) =>
+          b.addEventListener("click", () => modalDetail(b.dataset.detail)));
+      } catch (e) {
+        document.getElementById("req-grid").innerHTML = S.kosong("Gagal memuat pengajuan: " + e.message, "package");
+      }
+
+      /* Cerita */
+      try {
+        const stories = (await S.store.listStories({ publikOnly: true })).slice(0, 3);
+        document.getElementById("story-grid").innerHTML = stories.length
+          ? stories.map(kartuCerita).join("")
+          : S.kosong("Belum ada cerita.", "message");
+      } catch (e) {
+        document.getElementById("story-grid").innerHTML = S.kosong("Gagal memuat cerita.", "message");
+      }
+
+      /* ZISWAF: 4 kartu jenis + angka terkumpul nyata */
+      const zwGrid = document.getElementById("ziswaf-jenis");
+      if (zwGrid) {
+        let stats = null;
+        try { stats = await S.store.ziswafStats(); } catch (e) { /* tampil tanpa angka */ }
+        zwGrid.innerHTML = Object.entries(S.ZISWAF_JENIS).map(([k, m]) => {
+          const x = (stats && stats.perJenis[k]) || { terkumpul: 0 };
+          return '<a class="cat-card" href="ziswaf.html">' +
+            '<span class="cat-ic k-' + m.warna + '">' + S.icon(m.icon, 21) + "</span>" +
+            "<div><h3>" + S.esc(m.label) + "</h3><p>" + S.esc(m.ket) + "</p>" +
+            '<span class="sub-n">Terkumpul: <b>' + S.rupiah(x.terkumpul) + "</b> →</span></div></a>";
+        }).join("");
+      }
     }
 
-    /* Cerita */
-    try {
-      const stories = (await S.store.listStories({ publikOnly: true })).slice(0, 3);
-      document.getElementById("story-grid").innerHTML = stories.length
-        ? stories.map(kartuCerita).join("")
-        : S.kosong("Belum ada cerita.", "message");
-    } catch (e) {
-      document.getElementById("story-grid").innerHTML = S.kosong("Gagal memuat cerita.", "message");
-    }
+    await muatDaftar();
 
-    /* ZISWAF: 4 kartu jenis + angka terkumpul nyata */
-    const zwGrid = document.getElementById("ziswaf-jenis");
-    if (zwGrid) {
-      let stats = null;
-      try { stats = await S.store.ziswafStats(); } catch (e) { /* tampil tanpa angka */ }
-      zwGrid.innerHTML = Object.entries(S.ZISWAF_JENIS).map(([k, m]) => {
-        const x = (stats && stats.perJenis[k]) || { terkumpul: 0 };
-        return '<a class="cat-card" href="ziswaf.html">' +
-          '<span class="cat-ic k-' + m.warna + '">' + S.icon(m.icon, 21) + "</span>" +
-          "<div><h3>" + S.esc(m.label) + "</h3><p>" + S.esc(m.ket) + "</p>" +
-          '<span class="sub-n">Terkumpul: <b>' + S.rupiah(x.terkumpul) + "</b> →</span></div></a>";
-      }).join("");
+    /* Realtime: beranda otomatis memuat ulang kartu & angka saat data berubah —
+       misalnya donasi diverifikasi admin di tempat lain, angka terkumpul di
+       beranda langsung menyesuaikan tanpa memuat ulang halaman. */
+    if (SB.watchData) {
+      let jadwal = null;
+      SB.watchData(() => {
+        clearTimeout(jadwal);
+        jadwal = setTimeout(() => {
+          if (document.getElementById("mbk")) return; /* modal terbuka — jangan ganggu */
+          muatDaftar();
+        }, 800);
+      });
     }
   });
 })();

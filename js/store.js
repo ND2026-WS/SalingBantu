@@ -111,8 +111,18 @@ window.SB = window.SB || {};
     saveDb(db);
     return db;
   }
+  /* ==========================================================
+     LANGGANAN PERUBAHAN DATA (realtime untuk semua halaman)
+     - Mode Demo : setiap saveDb() + event "storage" dari tab lain
+     - Supabase  : kanal Realtime postgres_changes (schema public)
+     ========================================================== */
+  const pendengarData = new Set();
+  function kabarPerubahan(info) {
+    pendengarData.forEach((fn) => { try { fn(info); } catch (e) { /* pelanggan gagal — abaikan */ } });
+  }
   function saveDb(db) {
     try { localStorage.setItem(LS_KEY, JSON.stringify(db)); } catch (e) { console.warn("Gagal simpan demo:", e); }
+    kabarPerubahan({ sumber: "demo" });
   }
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms || 120));
 
@@ -142,7 +152,7 @@ window.SB = window.SB || {};
       const dihitung = (d) => d && (d.status === "terkonfirmasi" || d.status === "tersalurkan") && d.requestId && d.jumlah > 0;
       const delta = (dihitung(baru) ? baru.jumlah : 0) - (dihitung(lama) ? lama.jumlah : 0);
       if (!delta) return;
-      const r = db.requests.find((x) => x.id === (baru.requestId || (lama && lama.requestId)));
+      const r = db.requests.find((x) => x.id === ((baru && baru.requestId) || (lama && lama.requestId)));
       if (!r) return;
       r.terkumpul = Math.max(0, r.terkumpul + delta);
       if (delta > 0 && r.kebutuhan > 0 && r.terkumpul >= r.kebutuhan) {
@@ -223,6 +233,30 @@ window.SB = window.SB || {};
         db.audit.unshift({ id: uid(), aktor: (me() || {}).nama || "admin", aksi: "update", entitas: "profiles", entitasId: id, detail: { nama: u.nama, peran: u.peran }, tanggal: now() });
         saveDb(db); return u;
       },
+      /* ---------- HAPUS DATA (admin/pengelola) ---------- */
+      async deleteUser(id) {
+        const u = me(); if (!u || u.peran !== "admin") throw new Error("Hanya admin yang dapat menghapus pengguna.");
+        if (u.id === id) throw new Error("Tidak bisa menghapus akun sendiri dari panel.");
+        const target = userById(id); if (!target) throw new Error("Pengguna tidak ditemukan.");
+        /* pola sama dengan kaskade foreign key di Supabase:
+           donasi miliknya ikut terhapus, pengajuan miliknya terhapus beserta
+           penyalurannya, donasi untuk pengajuan itu tetap ada (request_id null) */
+        const reqIds = db.requests.filter((r) => r.userId === id).map((r) => r.id);
+        db.donations = db.donations
+          .filter((d) => d.donorId !== id)
+          .map((d) => (reqIds.includes(d.requestId) ? Object.assign({}, d, { requestId: null }) : d));
+        db.distributions = db.distributions.filter((x) => !reqIds.includes(x.requestId));
+        db.requests = db.requests.filter((r) => r.userId !== id);
+        db.volunteers = db.volunteers.filter((v) => v.userId !== id);
+        db.notifications = db.notifications.filter((n) => n.userId !== id);
+        db.communities.forEach((c) => { c.anggota = (c.anggota || []).filter((x) => x !== id); });
+        db.events.forEach((e) => { e.terdaftar = (e.terdaftar || []).filter((x) => x !== id); });
+        db.stories.forEach((s) => { if (s.penulisId === id) s.penulisId = null; });
+        db.users = db.users.filter((x) => x.id !== id);
+        if (db.sesi === id) db.sesi = null;
+        db.audit.unshift({ id: uid(), aktor: u.nama, aksi: "delete", entitas: "profiles", entitasId: id, detail: { nama: target.nama, email: target.email }, tanggal: now() });
+        saveDb(db);
+      },
       async updateRequestAdmin(id, patch) {
         const r = db.requests.find((x) => x.id === id); if (!r) throw new Error("Pengajuan tidak ditemukan.");
         if (patch.judul != null) r.judul = String(patch.judul).trim();
@@ -237,6 +271,18 @@ window.SB = window.SB || {};
         if (patch.publik != null) r.publik = !!patch.publik;
         db.audit.unshift({ id: uid(), aktor: (me() || {}).nama || "admin", aksi: "update", entitas: "assistance_requests", entitasId: id, detail: { judul: r.judul }, tanggal: now() });
         saveDb(db); return r;
+      },
+      async deleteRequest(id) {
+        const u = me(); if (!u || !["admin", "pengelola"].includes(u.peran)) throw new Error("Hanya admin/pengelola yang dapat menghapus pengajuan.");
+        const r = db.requests.find((x) => x.id === id); if (!r) throw new Error("Pengajuan tidak ditemukan.");
+        /* donasi yang terikat pengajuan ini tetap tersimpan (request_id kosong),
+           penyaluran & log status ikut terhapus — sama seperti ON DELETE di Supabase */
+        db.donations = db.donations.map((d) => (d.requestId === id ? Object.assign({}, d, { requestId: null }) : d));
+        db.distributions = db.distributions.filter((x) => x.requestId !== id);
+        db.logs = db.logs.filter((l) => l.requestId !== id);
+        db.requests = db.requests.filter((x) => x.id !== id);
+        db.audit.unshift({ id: uid(), aktor: u.nama, aksi: "delete", entitas: "assistance_requests", entitasId: id, detail: { kode: r.code, judul: r.judul }, tanggal: now() });
+        saveDb(db);
       },
       async updateDonationAdmin(id, patch) {
         const d = db.donations.find((x) => x.id === id); if (!d) throw new Error("Donasi tidak ditemukan.");
@@ -254,6 +300,16 @@ window.SB = window.SB || {};
         db.audit.unshift({ id: uid(), aktor: (me() || {}).nama || "admin", aksi: "update", entitas: "donations", entitasId: id, detail: { kuitansi: d.kuitansi }, tanggal: now() });
         saveDb(db); return d;
       },
+      async deleteDonation(id) {
+        const u = me(); if (!u || !["admin", "pengelola"].includes(u.peran)) throw new Error("Hanya admin/pengelola yang dapat menghapus donasi.");
+        const d = db.donations.find((x) => x.id === id); if (!d) throw new Error("Donasi tidak ditemukan.");
+        /* dana terkumpul program turun otomatis bila donasi ini sedang dihitung
+           (terkonfirmasi/tersalurkan) — konsisten dengan trigger hapus di Supabase */
+        selaraskanDonasi(d, null);
+        db.donations = db.donations.filter((x) => x.id !== id);
+        db.audit.unshift({ id: uid(), aktor: u.nama, aksi: "delete", entitas: "donations", entitasId: id, detail: { kuitansi: d.kuitansi, jumlah: d.jumlah }, tanggal: now() });
+        saveDb(db);
+      },
       async updateStoryAdmin(id, patch) {
         const s = db.stories.find((x) => x.id === id); if (!s) throw new Error("Cerita tidak ditemukan.");
         if (patch.judul != null) s.judul = String(patch.judul).trim();
@@ -261,6 +317,13 @@ window.SB = window.SB || {};
         if (patch.kategori != null) s.kategori = patch.kategori;
         db.audit.unshift({ id: uid(), aktor: (me() || {}).nama || "admin", aksi: "update", entitas: "stories", entitasId: id, detail: { judul: s.judul }, tanggal: now() });
         saveDb(db); return s;
+      },
+      async deleteStory(id) {
+        const u = me(); if (!u || !["admin", "pengelola"].includes(u.peran)) throw new Error("Hanya admin/pengelola yang dapat menghapus cerita.");
+        const s = db.stories.find((x) => x.id === id); if (!s) throw new Error("Cerita tidak ditemukan.");
+        db.stories = db.stories.filter((x) => x.id !== id);
+        db.audit.unshift({ id: uid(), aktor: u.nama, aksi: "delete", entitas: "stories", entitasId: id, detail: { judul: s.judul }, tanggal: now() });
+        saveDb(db);
       },
 
       /* ---------- ISI WEBSITE (CMS) ---------- */
@@ -346,7 +409,7 @@ window.SB = window.SB || {};
         await sleep(150);
         const r = db.requests.find((x) => x.id === id);
         if (!r) throw new Error("Pengajuan tidak ditemukan.");
-        const u = me(); if (!u || u.peran !== "admin") throw new Error("Hanya admin yang dapat mengubah status.");
+        const u = me(); if (!u || !["admin", "pengelola"].includes(u.peran)) throw new Error("Hanya admin/pengelola yang dapat mengubah status.");
         setStatus(r, baru, u.nama, catatan);
         saveDb(db); return r;
       },
@@ -384,7 +447,7 @@ window.SB = window.SB || {};
         await sleep(150);
         const d = db.donations.find((x) => x.id === id);
         if (!d) throw new Error("Donasi tidak ditemukan.");
-        const u = me(); if (!u || u.peran !== "admin") throw new Error("Hanya admin.");
+        const u = me(); if (!u || !["admin", "pengelola"].includes(u.peran)) throw new Error("Hanya admin/pengelola.");
         const lama = { status: d.status, jumlah: d.jumlah, requestId: d.requestId };
         d.status = ok ? "terkonfirmasi" : "ditolak";
         // dana terkumpul program naik otomatis saat disetujui, turun kembali bila
@@ -395,7 +458,7 @@ window.SB = window.SB || {};
       },
       async createDistribution(data) {
         await sleep(180);
-        const u = me(); if (!u || u.peran !== "admin") throw new Error("Hanya admin.");
+        const u = me(); if (!u || !["admin", "pengelola"].includes(u.peran)) throw new Error("Hanya admin/pengelola.");
         const x = { id: uid(), requestId: data.requestId, donationId: data.donationId || null, jenis: data.jenis, jumlah: Number(data.jumlah) || 0, barang: data.barang || "", oleh: u.nama, bukti: data.bukti || "", catatan: data.catatan || "", tanggal: now() };
         db.distributions.unshift(x);
         const r = db.requests.find((q) => q.id === data.requestId);
@@ -412,6 +475,15 @@ window.SB = window.SB || {};
             const r = db.requests.find((x) => x.id === d.requestId);
             return Object.assign({}, d, { kode: r ? r.code : "-" });
           });
+      },
+      async deleteDistribution(id) {
+        const u = me(); if (!u || !["admin", "pengelola"].includes(u.peran)) throw new Error("Hanya admin/pengelola yang dapat menghapus penyaluran.");
+        const x = db.distributions.find((q) => q.id === id); if (!x) throw new Error("Penyaluran tidak ditemukan.");
+        const r = db.requests.find((q) => q.id === x.requestId);
+        if (r) r.tersalur = Math.max(0, r.tersalur - (Number(x.jumlah) || 0));
+        db.distributions = db.distributions.filter((q) => q.id !== id);
+        db.audit.unshift({ id: uid(), aktor: u.nama, aksi: "delete", entitas: "assistance_distributions", entitasId: id, detail: { jumlah: x.jumlah }, tanggal: now() });
+        saveDb(db);
       },
 
       /* ---------- ZISWAF (Zakat, Infaq, Sedekah, Wakaf) ---------- */
@@ -466,6 +538,13 @@ window.SB = window.SB || {};
         db.audit.unshift({ id: uid(), aktor: u.nama, aksi: "update", entitas: "ziswaf_transactions", entitasId: id, detail: { kode: z.kode, status: z.status }, tanggal: now() });
         saveDb(db); return z;
       },
+      async deleteZiswaf(id) {
+        const u = me(); if (!u || !["admin", "pengelola"].includes(u.peran)) throw new Error("Hanya admin/pengelola yang dapat menghapus data ZISWAF.");
+        const z = db.ziswaf.find((x) => x.id === id); if (!z) throw new Error("Data ZISWAF tidak ditemukan.");
+        db.ziswaf = db.ziswaf.filter((x) => x.id !== id);
+        db.audit.unshift({ id: uid(), aktor: u.nama, aksi: "delete", entitas: "ziswaf_transactions", entitasId: id, detail: { kode: z.kode, jumlah: z.jumlah }, tanggal: now() });
+        saveDb(db);
+      },
       async verifyZiswaf(id, ok, catatan) {
         const u = me(); if (!u || !["admin", "pengelola"].includes(u.peran)) throw new Error("Hanya admin/pengelola.");
         const z = db.ziswaf.find((x) => x.id === id); if (!z) throw new Error("Data ZISWAF tidak ditemukan.");
@@ -512,6 +591,13 @@ window.SB = window.SB || {};
         if (patch.catatan != null) x.catatan = patch.catatan;
         db.audit.unshift({ id: uid(), aktor: u.nama, aksi: "update", entitas: "ziswaf_distributions", entitasId: id, detail: { kode: x.kode, nominal: x.nominal }, tanggal: now() });
         saveDb(db); return x;
+      },
+      async deleteZiswafSalur(id) {
+        const u = me(); if (!u || !["admin", "pengelola"].includes(u.peran)) throw new Error("Hanya admin/pengelola yang dapat menghapus penyaluran ZISWAF.");
+        const x = db.ziswafSalur.find((q) => q.id === id); if (!x) throw new Error("Penyaluran ZISWAF tidak ditemukan.");
+        db.ziswafSalur = db.ziswafSalur.filter((q) => q.id !== id);
+        db.audit.unshift({ id: uid(), aktor: u.nama, aksi: "delete", entitas: "ziswaf_distributions", entitasId: id, detail: { kode: x.kode, nominal: x.nominal }, tanggal: now() });
+        saveDb(db);
       },
       async ziswafStats() {
         const terverifikasi = db.ziswaf.filter((z) => z.status === "terverifikasi");
@@ -567,6 +653,13 @@ window.SB = window.SB || {};
         const u = me(); if (!u) return [];
         return db.events.filter((e) => e.terdaftar.includes(u.id));
       },
+      async deleteEvent(id) {
+        const u = me(); if (!u || !["admin", "pengelola"].includes(u.peran)) throw new Error("Hanya admin/pengelola yang dapat menghapus kegiatan.");
+        const e = db.events.find((x) => x.id === id); if (!e) throw new Error("Kegiatan tidak ditemukan.");
+        db.events = db.events.filter((x) => x.id !== id);
+        db.audit.unshift({ id: uid(), aktor: u.nama, aksi: "delete", entitas: "social_events", entitasId: id, detail: { judul: e.judul }, tanggal: now() });
+        saveDb(db);
+      },
       async listCommunities() { await sleep(70); return db.communities.slice(); },
       async createCommunity(data) {
         const u = me(); if (!u) throw new Error("Harus masuk.");
@@ -579,6 +672,13 @@ window.SB = window.SB || {};
         if (!c) throw new Error("Komunitas tidak ditemukan.");
         if (c.anggota.includes(u.id)) throw new Error("Sudah menjadi anggota.");
         c.anggota.push(u.id); saveDb(db); return c;
+      },
+      async deleteCommunity(id) {
+        const u = me(); if (!u || !["admin", "pengelola"].includes(u.peran)) throw new Error("Hanya admin/pengelola yang dapat menghapus komunitas.");
+        const c = db.communities.find((x) => x.id === id); if (!c) throw new Error("Komunitas tidak ditemukan.");
+        db.communities = db.communities.filter((x) => x.id !== id);
+        db.audit.unshift({ id: uid(), aktor: u.nama, aksi: "delete", entitas: "communities", entitasId: id, detail: { nama: c.nama }, tanggal: now() });
+        saveDb(db);
       },
 
       /* ---------- CERITA ---------- */
@@ -732,9 +832,56 @@ window.SB = window.SB || {};
       return { id: x.id, kode: x.kode, jenis: x.jenis, mustahik: x.mustahik, penerima: x.penerima || "", jumlahPenerima: Number(x.recipient_count) || 0, bentuk: x.bentuk || "Uang", nominal: Number(x.amount) || 0, catatan: x.note || "", oleh: x.distributed_by, tanggal: x.distributed_at || x.created_at };
     }
 
+    /* Hapus satu baris lalu pastikan benar-benar terhapus. Penting: bila kebijakan
+       RLS menolak, PostgREST mengembalikan SUKSES tanpa baris — di situlah kita
+       beri pesan jelas ke admin (biasanya database lama belum menjalankan
+       sql/update_delete_realtime.sql). */
+    async function hapusBaris(tabel, id, label) {
+      const { data, error } = await sb.from(tabel).delete().eq("id", id).select("id");
+      if (error) throw new Error(pesanDb(error.message));
+      if (!data || !data.length) {
+        throw new Error(label + " tidak ditemukan, atau penghapusan ditolak kebijakan keamanan database (RLS). Bila database lama: jalankan dulu seluruh isi sql/update_delete_realtime.sql di SQL Editor Supabase, lalu coba lagi.");
+      }
+      return data;
+    }
+
+    /* ---------- REALTIME DATA (postgres_changes, schema public) ----------
+       Satu kanal bersama untuk semua halaman; setiap perubahan tabel yang
+       terdaftar di publication supabase_realtime dipeneruskan ke pelanggan. */
+    let kanalData = null;
+    const pendengarRt = new Set();
+    function subscribeData(cb) {
+      if (typeof cb !== "function") return function () {};
+      pendengarRt.add(cb);
+      if (!kanalData) {
+        try {
+          kanalData = sb.channel("sb-perubahan-data-" + Date.now())
+            .on("postgres_changes", { event: "*", schema: "public" }, (pay) => {
+              const info = {
+                sumber: "supabase",
+                tabel: pay && pay.table,
+                aksi: pay && (pay.eventType || pay.type),
+                baru: pay && pay.new,
+                lama: pay && pay.old
+              };
+              pendengarRt.forEach((fn) => { try { fn(info); } catch (e) { /* abaikan */ } });
+            })
+            .subscribe();
+        } catch (e) { kanalData = null; }
+      }
+      return function () {
+        pendengarRt.delete(cb);
+        if (!pendengarRt.size && kanalData) {
+          try { sb.removeChannel(kanalData); } catch (e) { /* abaikan */ }
+          kanalData = null;
+        }
+      };
+    }
+
     return {
       mode: "supabase",
       client: sb, /* akses channel realtime utk dashboard admin */
+      subscribeData,
       async currentUser() { try { return await meRow(); } catch (e) { return null; } },
       async signUp({ nama, email, telepon, sandi, peran }) {
         let res;
@@ -809,8 +956,18 @@ window.SB = window.SB || {};
         const { error } = await sb.from("profiles").update(p).eq("id", id);
         if (error) throw new Error(error.message);
       },
+      /* ---------- HAPUS DATA (admin/pengelola) ---------- */
+      async deleteUser(id) {
+        const u = await meRow(); if (!u || u.peran !== "admin") throw new Error("Hanya admin yang dapat menghapus pengguna.");
+        if (u.id === id) throw new Error("Tidak bisa menghapus akun sendiri dari panel.");
+        await hapusBaris("profiles", id, "Pengguna");
+        /* data terkait (donasi, pengajuan, volunteer, notifikasi) ikut terhapus
+           lewat ON DELETE CASCADE. Catatan: akun autentikasi (Supabase Auth)
+           tetap ada — hapus lewat Dashboard Supabase → Authentication → Users
+           bila ingin benar-benar menghapus email tersebut. */
+      },
       async updateRequestAdmin(id, patch) {
-        const me = await meRow(); if (!me || me.peran !== "admin") throw new Error("Hanya admin yang dapat mengedit pengajuan.");
+        const me = await meRow(); if (!me || !["admin", "pengelola"].includes(me.peran)) throw new Error("Hanya admin/pengelola yang dapat mengedit pengajuan.");
         const p = {};
         if (patch.judul != null) p.title = String(patch.judul).trim();
         if (patch.deskripsi != null) p.description = patch.deskripsi;
@@ -826,7 +983,7 @@ window.SB = window.SB || {};
         if (error) throw new Error(pesanDb(error.message));
       },
       async updateDonationAdmin(id, patch) {
-        const me = await meRow(); if (!me || me.peran !== "admin") throw new Error("Hanya admin yang dapat mengedit donasi.");
+        const me = await meRow(); if (!me || !["admin", "pengelola"].includes(me.peran)) throw new Error("Hanya admin/pengelola yang dapat mengedit donasi.");
         const p = {};
         if (patch.donorNama != null) p.donor_name = patch.donorNama;
         if (patch.anonim != null) p.is_anonymous = !!patch.anonim;
@@ -839,7 +996,7 @@ window.SB = window.SB || {};
         if (error) throw new Error(error.message);
       },
       async updateStoryAdmin(id, patch) {
-        const me = await meRow(); if (!me || me.peran !== "admin") throw new Error("Hanya admin yang dapat mengedit cerita.");
+        const me = await meRow(); if (!me || !["admin", "pengelola"].includes(me.peran)) throw new Error("Hanya admin/pengelola yang dapat mengedit cerita.");
         const p = {};
         if (patch.judul != null) p.title = String(patch.judul).trim();
         if (patch.isi != null) p.content = patch.isi;
@@ -931,10 +1088,17 @@ window.SB = window.SB || {};
       },
       async updateRequestStatus(id, baru, catatan) {
         const u = await meRow();
-        if (!u || u.peran !== "admin") throw new Error("Hanya admin yang dapat mengubah status.");
+        if (!u || !["admin", "pengelola"].includes(u.peran)) throw new Error("Hanya admin/pengelola yang dapat mengubah status.");
         const { data, error } = await sb.from("assistance_requests").update({ status: baru, rejection_reason: catatan || null }).eq("id", id).select().single();
         if (error) throw new Error(pesanDb(error.message));
         return mapReq(data);
+      },
+      async deleteRequest(id) {
+        const u = await meRow();
+        if (!u || !["admin", "pengelola"].includes(u.peran)) throw new Error("Hanya admin/pengelola yang dapat menghapus pengajuan.");
+        /* donasi yang terikat ikut lepas (request_id null), penyaluran & log
+           terhapus kaskade — semua diatur foreign key di database */
+        await hapusBaris("assistance_requests", id, "Pengajuan");
       },
 
       async createDonation(data) {
@@ -954,13 +1118,13 @@ window.SB = window.SB || {};
         return (data || []).map(mapDon);
       },
       async verifyDonation(id, ok, catatan) {
-        const u = await meRow(); if (!u || u.peran !== "admin") throw new Error("Hanya admin.");
+        const u = await meRow(); if (!u || !["admin", "pengelola"].includes(u.peran)) throw new Error("Hanya admin/pengelola.");
         const { data, error } = await sb.from("donations").update({ status: ok ? "terkonfirmasi" : "ditolak" }).eq("id", id).select().single();
         if (error) throw new Error(error.message);
         return mapDon(data);
       },
       async createDistribution(data) {
-        const u = await meRow(); if (!u || u.peran !== "admin") throw new Error("Hanya admin.");
+        const u = await meRow(); if (!u || !["admin", "pengelola"].includes(u.peran)) throw new Error("Hanya admin/pengelola.");
         const { data: row, error } = await sb.from("assistance_distributions").insert({ request_id: data.requestId, donation_id: data.donationId || null, type: data.jenis, amount: Number(data.jumlah) || 0, item_description: data.barang || "", note: data.catatan || "", distributed_by: u.id }).select().single();
         if (error) throw new Error(error.message);
         return row;
@@ -969,6 +1133,19 @@ window.SB = window.SB || {};
         const { data, error } = await sb.from("v_penyaluran_publik").select("*").order("distributed_at", { ascending: false });
         if (error) return [];
         return data || [];
+      },
+      async deleteDonation(id) {
+        const u = await meRow();
+        if (!u || !["admin", "pengelola"].includes(u.peran)) throw new Error("Hanya admin/pengelola yang dapat menghapus donasi.");
+        /* dana terkumpul program dikurangi otomatis oleh trigger trg_donation_deleted
+           bila donasi yang dihapus sedang dihitung (terkonfirmasi/tersalurkan) */
+        await hapusBaris("donations", id, "Donasi");
+      },
+      async deleteDistribution(id) {
+        const u = await meRow();
+        if (!u || !["admin", "pengelola"].includes(u.peran)) throw new Error("Hanya admin/pengelola yang dapat menghapus penyaluran.");
+        /* dana tersalur program dikurangi otomatis oleh trg_distribution_deleted */
+        await hapusBaris("assistance_distributions", id, "Penyaluran");
       },
 
       /* ---------- ZISWAF (Zakat, Infaq, Sedekah, Wakaf) ---------- */
@@ -1046,6 +1223,11 @@ window.SB = window.SB || {};
         void catatan;
         return mapZiswaf(data);
       },
+      async deleteZiswaf(id) {
+        const u = await meRow();
+        if (!u || !["admin", "pengelola"].includes(u.peran)) throw new Error("Hanya admin/pengelola yang dapat menghapus data ZISWAF.");
+        await hapusBaris("ziswaf_transactions", id, "Data ZISWAF");
+      },
       async listZiswafSalur(f) {
         f = f || {};
         const q = f.publikOnly
@@ -1087,6 +1269,11 @@ window.SB = window.SB || {};
         const { data, error } = await sb.from("ziswaf_distributions").update(p).eq("id", id).select().single();
         if (error) throw new Error(error.message);
         return mapZiswafSalur(data);
+      },
+      async deleteZiswafSalur(id) {
+        const u = await meRow();
+        if (!u || !["admin", "pengelola"].includes(u.peran)) throw new Error("Hanya admin/pengelola yang dapat menghapus penyaluran ZISWAF.");
+        await hapusBaris("ziswaf_distributions", id, "Penyaluran ZISWAF");
       },
       async ziswafStats() {
         const { data, error } = await sb.rpc("ziswaf_stats");
@@ -1138,6 +1325,11 @@ window.SB = window.SB || {};
         const { data } = await sb.from("event_registrations").select("event_id, social_events(*)").eq("user_id", u.id);
         return (data || []).filter((r) => r.social_events).map((r) => ({ id: r.social_events.id, judul: r.social_events.title, lokasi: r.social_events.location, tanggal: r.social_events.event_date }));
       },
+      async deleteEvent(id) {
+        const u = await meRow();
+        if (!u || !["admin", "pengelola"].includes(u.peran)) throw new Error("Hanya admin/pengelola yang dapat menghapus kegiatan.");
+        await hapusBaris("social_events", id, "Kegiatan");
+      },
       async listCommunities() {
         const { data, error } = await sb.from("communities").select("*").order("created_at", { ascending: false });
         if (error) throw new Error(error.message);
@@ -1152,6 +1344,11 @@ window.SB = window.SB || {};
         const u = await meRow(); if (!u) throw new Error("Harus masuk.");
         const { error } = await sb.from("community_members").insert({ community_id: id, user_id: u.id });
         if (error) throw new Error(error.message);
+      },
+      async deleteCommunity(id) {
+        const u = await meRow();
+        if (!u || !["admin", "pengelola"].includes(u.peran)) throw new Error("Hanya admin/pengelola yang dapat menghapus komunitas.");
+        await hapusBaris("communities", id, "Komunitas");
       },
 
       async listStories(f) {
@@ -1168,9 +1365,14 @@ window.SB = window.SB || {};
         if (error) throw new Error(error.message);
       },
       async moderateStory(id, ok) {
-        const u = await meRow(); if (!u || u.peran !== "admin") throw new Error("Hanya admin.");
+        const u = await meRow(); if (!u || !["admin", "pengelola"].includes(u.peran)) throw new Error("Hanya admin/pengelola.");
         const { error } = await sb.from("stories").update({ status: ok ? "disetujui" : "ditolak", is_published: ok, reviewed_at: new Date().toISOString() }).eq("id", id);
         if (error) throw new Error(error.message);
+      },
+      async deleteStory(id) {
+        const u = await meRow();
+        if (!u || !["admin", "pengelola"].includes(u.peran)) throw new Error("Hanya admin/pengelola yang dapat menghapus cerita.");
+        await hapusBaris("stories", id, "Cerita");
       },
 
       async myNotifications() {
@@ -1252,4 +1454,29 @@ window.SB = window.SB || {};
   }
   SB.store = chosen;
   SB.MODE = MODE;
+
+  /* ==========================================================
+     SB.watchData(cb) — langganan perubahan data global.
+     Dipakai semua halaman agar tampilan ikut memuat ulang secara
+     otomatis (realtime) tanpa menekan tombol segarkan:
+     - Mode Supabase : event Realtime postgres_changes schema public
+       (setiap tabel yang terdaftar di publication supabase_realtime)
+     - Mode Demo     : setiap perubahan data di browser ini + tab lain
+       (event "storage" localStorage)
+     Mengembalikan fungsi berhenti-langganan (unsubscribe).
+     ========================================================== */
+  SB.watchData = function (cb) {
+    if (typeof cb !== "function") return function () {};
+    if (MODE === "demo") {
+      pendengarData.add(cb);
+      const onStorage = (e) => { if (!e || !e.key || e.key === LS_KEY) cb({ sumber: "demo" }); };
+      window.addEventListener("storage", onStorage);
+      return function () {
+        pendengarData.delete(cb);
+        window.removeEventListener("storage", onStorage);
+      };
+    }
+    if (chosen.subscribeData) return chosen.subscribeData(cb);
+    return function () {};
+  };
 })();

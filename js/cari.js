@@ -58,5 +58,19 @@
     $("#f-q").addEventListener("keydown", (e) => { if (e.key === "Enter") muat(); });
     $("#f-kategori").addEventListener("change", muat);
     muat();
+
+    /* Realtime: hasil pencarian ikut segar otomatis saat ada pengajuan baru
+       dipublikasikan / dihapus / berstatus (filter form tetap dipertahankan). */
+    if (SB.watchData) {
+      let jadwal = null;
+      SB.watchData((info) => {
+        if (info && info.tabel && info.tabel !== "assistance_requests") return;
+        clearTimeout(jadwal);
+        jadwal = setTimeout(() => {
+          if (document.getElementById("mbk")) return;
+          muat();
+        }, 800);
+      });
+    }
   });
 })();

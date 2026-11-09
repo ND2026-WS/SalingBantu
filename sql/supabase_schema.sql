@@ -608,6 +608,26 @@ drop trigger if exists trg_donation_amount on public.donations;
 create trigger trg_donation_amount after update of amount on public.donations
 for each row execute function public.fn_donation_amount_changed();
 
+-- hapus donasi: bila donasi yang dihapus sedang dihitung ke dana terkumpul
+-- (terkonfirmasi/tersalurkan, bernilai > 0, terikat program), dana terkumpul
+-- program dikurangi kembali sehingga kartu program selalu akurat.
+create or replace function public.fn_donation_deleted() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if old.status in ('terkonfirmasi','tersalurkan')
+     and old.request_id is not null and old.amount > 0 then
+    update public.assistance_requests
+      set funds_collected = greatest(0, funds_collected - old.amount)
+      where id = old.request_id;
+  end if;
+  perform public.fn_audit(auth.uid(), 'delete', 'donations', old.id,
+    jsonb_build_object('kuitansi', old.receipt_number, 'jumlah', old.amount, 'status', old.status));
+  return old;
+end $$;
+drop trigger if exists trg_donation_deleted on public.donations;
+create trigger trg_donation_deleted after delete on public.donations
+for each row execute function public.fn_donation_deleted();
+
 -- ============================================================
 -- BAGIAN 14 — TRIGGER PENYALURAN: dana tersalur + notifikasi
 -- ============================================================
@@ -629,6 +649,21 @@ end $$;
 drop trigger if exists trg_distribution_created on public.assistance_distributions;
 create trigger trg_distribution_created after insert on public.assistance_distributions
 for each row execute function public.fn_distribution_created();
+
+-- hapus penyaluran: dana tersalur program dikurangi kembali (selisih)
+create or replace function public.fn_distribution_deleted() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  update public.assistance_requests ar
+    set funds_distributed = greatest(0, ar.funds_distributed - coalesce(old.amount, 0))
+    where ar.id = old.request_id;
+  perform public.fn_audit(auth.uid(), 'delete', 'assistance_distributions', old.id,
+    jsonb_build_object('request_id', old.request_id, 'jumlah', old.amount));
+  return old;
+end $$;
+drop trigger if exists trg_distribution_deleted on public.assistance_distributions;
+create trigger trg_distribution_deleted after delete on public.assistance_distributions
+for each row execute function public.fn_distribution_deleted();
 
 -- ============================================================
 -- BAGIAN 15 — ROW LEVEL SECURITY (RLS)
@@ -709,7 +744,7 @@ create policy p_donations_read on public.donations for select to authenticated
                     where r.id = donations.request_id and r.user_id = auth.uid()));
 drop policy if exists p_donations_admin on public.donations;
 create policy p_donations_admin on public.donations for all to authenticated
-  using (public.is_admin()) with check (public.is_admin());
+  using (public.is_pengelola()) with check (public.is_pengelola());
 
 drop policy if exists p_trans_read on public.donation_transactions;
 create policy p_trans_read on public.donation_transactions for select to authenticated
@@ -723,7 +758,7 @@ drop policy if exists p_dist_read on public.assistance_distributions;
 create policy p_dist_read on public.assistance_distributions for select to anon, authenticated using (true);
 drop policy if exists p_dist_admin on public.assistance_distributions;
 create policy p_dist_admin on public.assistance_distributions for all to authenticated
-  using (public.is_admin()) with check (public.is_admin());
+  using (public.is_pengelola()) with check (public.is_pengelola());
 
 -- ---- volunteer ----
 drop policy if exists p_vol_read on public.volunteers;
@@ -739,7 +774,7 @@ drop policy if exists p_comm_insert on public.communities;
 create policy p_comm_insert on public.communities for insert to authenticated with check (true);
 drop policy if exists p_comm_admin on public.communities;
 create policy p_comm_admin on public.communities for all to authenticated
-  using (public.is_admin() or created_by = auth.uid()) with check (public.is_admin() or created_by = auth.uid());
+  using (public.is_pengelola() or created_by = auth.uid()) with check (public.is_pengelola() or created_by = auth.uid());
 
 drop policy if exists p_cmembers_read on public.community_members;
 create policy p_cmembers_read on public.community_members for select to anon, authenticated using (true);
@@ -754,7 +789,7 @@ drop policy if exists p_events_insert on public.social_events;
 create policy p_events_insert on public.social_events for insert to authenticated with check (true);
 drop policy if exists p_events_admin on public.social_events;
 create policy p_events_admin on public.social_events for all to authenticated
-  using (public.is_admin() or created_by = auth.uid()) with check (public.is_admin() or created_by = auth.uid());
+  using (public.is_pengelola() or created_by = auth.uid()) with check (public.is_pengelola() or created_by = auth.uid());
 
 drop policy if exists p_reg_read on public.event_registrations;
 create policy p_reg_read on public.event_registrations for select to authenticated
@@ -772,7 +807,7 @@ create policy p_stories_insert on public.stories for insert to authenticated
   with check (author_id = auth.uid() and status = 'menunggu_review');
 drop policy if exists p_stories_admin on public.stories;
 create policy p_stories_admin on public.stories for all to authenticated
-  using (public.is_admin() or author_id = auth.uid()) with check (public.is_admin() or author_id = auth.uid());
+  using (public.is_pengelola() or author_id = auth.uid()) with check (public.is_pengelola() or author_id = auth.uid());
 
 -- ---- notifikasi: milik pengguna ----
 drop policy if exists p_notif_read on public.notifications;
@@ -994,6 +1029,29 @@ do $$ begin
 exception when duplicate_object then null; when undefined_object then null; end $$;
 do $$ begin
   alter publication supabase_realtime add table public.site_content;
+exception when duplicate_object then null; when undefined_object then null; end $$;
+-- 19d-lanjutan: tabel pendukung agar seluruh menu ikut realtime
+-- (fitur hapus data + pembaruan otomatis, sql/update_delete_realtime.sql)
+do $$ begin
+  alter publication supabase_realtime add table public.social_events;
+exception when duplicate_object then null; when undefined_object then null; end $$;
+do $$ begin
+  alter publication supabase_realtime add table public.event_registrations;
+exception when duplicate_object then null; when undefined_object then null; end $$;
+do $$ begin
+  alter publication supabase_realtime add table public.communities;
+exception when duplicate_object then null; when undefined_object then null; end $$;
+do $$ begin
+  alter publication supabase_realtime add table public.community_members;
+exception when duplicate_object then null; when undefined_object then null; end $$;
+do $$ begin
+  alter publication supabase_realtime add table public.volunteers;
+exception when duplicate_object then null; when undefined_object then null; end $$;
+do $$ begin
+  alter publication supabase_realtime add table public.donation_transactions;
+exception when duplicate_object then null; when undefined_object then null; end $$;
+do $$ begin
+  alter publication supabase_realtime add table public.verification_logs;
 exception when duplicate_object then null; when undefined_object then null; end $$;
 
 -- ============================================================
