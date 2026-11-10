@@ -43,20 +43,6 @@
     sel.addEventListener("change", () => muat({ kategori: sel.value }));
     muat();
 
-    /* Realtime: daftar cerita ikut segar otomatis saat admin menyetujui,
-       mengedit, atau menghapus cerita di tempat lain. */
-    if (SB.watchData) {
-      let jadwal = null;
-      SB.watchData((info) => {
-        if (info && info.tabel && info.tabel !== "stories" && info.tabel !== "profiles") return;
-        clearTimeout(jadwal);
-        jadwal = setTimeout(() => {
-          if (document.getElementById("mbk")) return;
-          muat({ kategori: sel.value });
-        }, 800);
-      });
-    }
-
     $("#btn-tulis").addEventListener("click", async () => {
       const user = await S.store.currentUser();
       if (!user) { S.toast("Masuk dulu untuk menulis cerita.", "info"); setTimeout(() => location.href = "masuk.html?next=cerita-kebaikan.html", 800); return; }

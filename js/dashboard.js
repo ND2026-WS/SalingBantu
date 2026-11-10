@@ -411,18 +411,5 @@
     renderNav();
     renderSection();
     window.addEventListener("hashchange", renderSection);
-
-    /* Realtime: dashboard memuat ulang bagian aktif otomatis saat data berubah
-       (donasi terkonfirmasi, pengajuan berstatus, ZISWAF terverifikasi, dsb). */
-    if (SB.watchData) {
-      let jadwal = null;
-      SB.watchData(() => {
-        clearTimeout(jadwal);
-        jadwal = setTimeout(() => {
-          if (document.getElementById("mbk")) return; /* modal terbuka — jangan ganggu */
-          renderSection();
-        }, 800);
-      });
-    }
   });
 })();

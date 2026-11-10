@@ -7,9 +7,6 @@
   const S = SB;
   const $ = (s) => document.querySelector(s);
 
-  let reqsTerkini = []; /* daftar proyek terakhir — dipakai listener klik yang
-                           dipasang sekali agar realtime muat ulang tidak menumpuk */
-
   async function muat() {
     try {
       const stats = await S.store.platformStats();
@@ -21,7 +18,6 @@
     /* Proyek */
     try {
       const reqs = await S.store.listRequests({ publikOnly: true });
-      reqsTerkini = reqs;
       const tb = $("#tabel-proyek tbody");
       if (!reqs.length) { tb.innerHTML = '<tr><td colspan="8" style="color:var(--abu)">Belum ada proyek publik.</td></tr>'; }
       else {
@@ -42,6 +38,13 @@
       tb.querySelectorAll("tr").forEach((tr) => {
         const kode = tr.querySelector("td b");
         if (kode) tr.style.cursor = "pointer";
+      });
+      $("#tabel-proyek").addEventListener("click", (e) => {
+        const b = e.target.closest("td b");
+        if (!b) return;
+        const kode = b.textContent;
+        const r = reqs.find((x) => x.code === kode);
+        if (r) S.modalDetailPengajuan(r.id, { tanpaBantu: true });
       });
       $("#d-selesai").textContent = reqs.filter((r) => r.status === "selesai").length + " proyek";
     } catch (e) {
@@ -76,28 +79,6 @@
     });
 
     muat();
-
-    /* detail proyek saat baris tabel diklik — dipasang SEKALI, data mengikuti
-       muat() terakhir (aman untuk muat ulang realtime) */
-    $("#tabel-proyek").addEventListener("click", (e) => {
-      const b = e.target.closest("td b");
-      if (!b) return;
-      const r = reqsTerkini.find((x) => x.code === b.textContent);
-      if (r) S.modalDetailPengajuan(r.id, { tanpaBantu: true });
-    });
-
-    /* Realtime: angka dana publik, daftar proyek, dan penyaluran ikut segar
-       otomatis saat ada verifikasi/hapus/donasi baru di tempat lain. */
-    if (SB.watchData) {
-      let jadwal = null;
-      SB.watchData(() => {
-        clearTimeout(jadwal);
-        jadwal = setTimeout(() => {
-          if (document.getElementById("mbk")) return;
-          muat();
-        }, 800);
-      });
-    }
 
     $("#btn-lapor").addEventListener("click", async () => {
       const isi = $("#lp-isi").value.trim();

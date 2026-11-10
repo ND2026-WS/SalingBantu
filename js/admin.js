@@ -399,7 +399,6 @@
         '<button class="btn btn-ghost" data-edit-user="' + u.id + '">Edit</button>' +
         '<button class="btn btn-ghost" data-verif="' + u.id + '">' + (u.terverifikasi ? "Batal Verif." : "Verifikasi") + "</button>" +
         '<button class="btn btn-ghost" data-aktif="' + u.id + '">' + (u.aktif === false ? "Aktifkan" : "Nonaktifkan") + "</button>" +
-        (user && user.peran === "admin" && u.id !== user.id ? '<button class="btn btn-danger" data-hapus-user="' + u.id + '">Hapus</button>' : "") +
         "</div></td></tr>").join("") +
       "</tbody></table></div>";
     mainEl().innerHTML = html;
@@ -421,17 +420,6 @@
         if (!(await S.konfirmasi((u.aktif === false ? "Aktifkan" : "Nonaktifkan") + " akun " + u.nama + "?", "Ya"))) return;
         try { await S.store.setUserAktif(u.id, u.aktif === false); S.toast("Status akun diperbarui.", "sukses"); vPengguna(); }
         catch (e) { S.toast(e.message, "gagal"); }
-      }));
-    mainEl().querySelectorAll("[data-hapus-user]").forEach((b) =>
-      b.addEventListener("click", async () => {
-        const u = cache.users.find((x) => x.id === b.dataset.hapusUser);
-        if (!u) return;
-        if (!(await S.konfirmasi("Hapus akun " + u.nama + (u.email && u.email !== "-" ? " (" + u.email + ")" : "") + "? Seluruh data terkait akun ini (donasi, pengajuan, notifikasi) ikut terhapus dan tidak bisa dikembalikan.", "Ya, hapus akun"))) return;
-        try {
-          await S.store.deleteUser(u.id);
-          S.toast("Akun " + u.nama + " telah dihapus.", "sukses");
-          vPengguna();
-        } catch (e) { S.toast(e.message, "gagal"); }
       }));
     mainEl().querySelectorAll("[data-edit-user]").forEach((b) =>
       b.addEventListener("click", () => modalEditUser(b.dataset.editUser)));
@@ -502,8 +490,7 @@
           "<td>" + S.badgeStatus(r.status) + "</td>" +
           "<td>" + S.rupiah(r.terkumpul) + "<br><small style='color:var(--abu)'>/" + S.rupiah(r.kebutuhan) + "</small></td>" +
           '<td><div class="td-actions"><button class="btn btn-ghost" data-detail="' + r.id + '">Detail</button>' +
-          '<button class="btn btn-ghost" data-edit-req="' + r.id + '">Edit</button>' +
-          '<button class="btn btn-danger" data-del-req="' + r.id + '">Hapus</button>' + (tombol || '<span style="font-size:12px;color:var(--abu)">Selesai</span>') + "</div></td></tr>";
+          '<button class="btn btn-ghost" data-edit-req="' + r.id + '">Edit</button>' + (tombol || '<span style="font-size:12px;color:var(--abu)">Selesai</span>') + "</div></td></tr>";
       }).join("") +
       "</tbody></table></div>";
     mainEl().innerHTML = html;
@@ -517,17 +504,6 @@
       }));
     mainEl().querySelectorAll("[data-edit-req]").forEach((b) =>
       b.addEventListener("click", () => modalEditPengajuan(b.dataset.editReq)));
-    mainEl().querySelectorAll("[data-del-req]").forEach((b) =>
-      b.addEventListener("click", async () => {
-        const r = cache.requests.find((x) => x.id === b.dataset.delReq);
-        if (!r) return;
-        if (!(await S.konfirmasi("Hapus pengajuan " + r.code + " \u2014 \"" + r.judul.slice(0, 60) + "\"? Donasi yang sudah tercatat tetap ada di riwayat donatur, namun penyaluran, progres dana, dan kartu program ini ikut terhapus.", "Ya, hapus pengajuan"))) return;
-        try {
-          await S.store.deleteRequest(r.id);
-          S.toast("Pengajuan " + r.code + " telah dihapus.", "sukses");
-          vPengajuan();
-        } catch (e) { S.toast(e.message, "gagal"); }
-      }));
     document.getElementById("req-tambah").addEventListener("click", () => modalTambahProgram());
   }
 
@@ -714,7 +690,6 @@
             ? '<button class="btn btn-primary" data-verdon="' + d.id + '|1">Konfirmasi</button><button class="btn btn-danger" data-verdon="' + d.id + '|0">Tolak</button>'
             : "") +
           '<button class="btn btn-ghost" data-edit-don="' + d.id + '">Edit</button>' +
-          '<button class="btn btn-danger" data-del-don="' + d.id + '">Hapus</button>' +
           "</div></td></tr>";
       }).join("") : '<tr><td colspan="6" style="color:var(--abu)">Belum ada donasi.</td></tr>') +
       "</tbody></table></div></div>";
@@ -761,18 +736,6 @@
 
     mainEl().querySelectorAll("[data-edit-don]").forEach((b) =>
       b.addEventListener("click", () => modalEditDonasi(b.dataset.editDon)));
-
-    mainEl().querySelectorAll("[data-del-don]").forEach((b) =>
-      b.addEventListener("click", async () => {
-        const d = cache.donations.find((x) => x.id === b.dataset.delDon);
-        if (!d) return;
-        if (!(await S.konfirmasi("Hapus donasi " + d.kuitansi + " dari " + d.donorNama + " (" + (d.jenis === "finansial" ? S.rupiah(d.jumlah) : "barang") + ")? Bila donasi ini sedang terkonfirmasi, dana terkumpul program terkait otomatis berkurang.", "Ya, hapus donasi"))) return;
-        try {
-          await S.store.deleteDonation(d.id);
-          S.toast("Donasi " + d.kuitansi + " telah dihapus.", "sukses");
-          vDonasi();
-        } catch (e) { S.toast(e.message, "gagal"); }
-      }));
 
     document.getElementById("form-dist").addEventListener("submit", async (e) => {
       e.preventDefault();
@@ -927,7 +890,6 @@
         '<td><div class="td-actions">' +
         (z.status === "menunggu" ? '<button class="btn btn-primary" data-verzw="' + z.id + '|1">Verifikasi</button><button class="btn btn-danger" data-verzw="' + z.id + '|0">Tolak</button>' : "") +
         '<button class="btn btn-ghost" data-edit-zw="' + z.id + '">Edit</button>' +
-        '<button class="btn btn-danger" data-del-zw="' + z.id + '">Hapus</button>' +
         "</div></td></tr>").join("") : '<tr><td colspan="6" style="color:var(--abu)">Tidak ada data untuk filter ini.</td></tr>';
       mainEl().querySelectorAll("[data-verzw]").forEach((b) =>
         b.addEventListener("click", async () => {
@@ -946,17 +908,6 @@
           SB.refreshNotif && SB.refreshNotif();
           vZiswaf();
         }));
-      mainEl().querySelectorAll("[data-del-zw]").forEach((b) =>
-        b.addEventListener("click", async () => {
-          const z = cache.ziswaf.find((x) => x.id === b.dataset.delZw);
-          if (!z) return;
-          if (!(await S.konfirmasi("Hapus penerimaan ZISWAF " + z.kode + " dari " + z.donorNama + "? Rekap dana dan papan kebaikan langsung menyesuaikan.", "Ya, hapus"))) return;
-          try {
-            await S.store.deleteZiswaf(z.id);
-            S.toast("Penerimaan " + z.kode + " telah dihapus.", "sukses");
-            vZiswaf();
-          } catch (e) { S.toast(e.message, "gagal"); }
-        }));
       mainEl().querySelectorAll("[data-edit-zw]").forEach((b) =>
         b.addEventListener("click", () => modalEditZiswaf(b.dataset.editZw)));
     }
@@ -969,24 +920,10 @@
         "<td style='max-width:180px'>" + S.esc(x.bentuk || "-") + "</td>" +
         "<td><b>" + S.rupiah(x.nominal) + "</b></td>" +
         "<td style='max-width:200px;font-size:12.5px;color:var(--abu)'>" + S.esc(x.penerima || "-") + (x.jumlahPenerima ? " (" + x.jumlahPenerima + " org)" : "") + "</td>" +
-        '<td><div class="td-actions">' +
-        '<button class="btn btn-ghost" data-edit-zs="' + x.id + '">Edit</button>' +
-        '<button class="btn btn-danger" data-del-zs="' + x.id + '">Hapus</button>' +
-        "</div></td></tr>").join("")
+        '<td><button class="btn btn-ghost" data-edit-zs="' + x.id + '">Edit</button></td></tr>').join("")
         : '<tr><td colspan="7" style="color:var(--abu)">Belum ada penyaluran.</td></tr>';
       mainEl().querySelectorAll("[data-edit-zs]").forEach((b) =>
         b.addEventListener("click", () => modalEditSalur(b.dataset.editZs)));
-      mainEl().querySelectorAll("[data-del-zs]").forEach((b) =>
-        b.addEventListener("click", async () => {
-          const x = cache.ziswafSalur.find((q) => q.id === b.dataset.delZs);
-          if (!x) return;
-          if (!(await S.konfirmasi("Hapus penyaluran " + x.kode + " (" + S.rupiah(x.nominal) + ")? Saldo dana " + S.ZISWAF_JENIS[x.jenis].label + " akan kembali naik sebesar nominal ini.", "Ya, hapus"))) return;
-          try {
-            await S.store.deleteZiswafSalur(x.id);
-            S.toast("Penyaluran " + x.kode + " telah dihapus.", "sukses");
-            vZiswaf();
-          } catch (e) { S.toast(e.message, "gagal"); }
-        }));
     }
 
     renderTabelPenerimaan();
@@ -1201,7 +1138,6 @@
         '<button class="btn btn-ghost" data-edit-story="' + s.id + '">Edit</button>' +
         (s.status !== "disetujui" ? '<button class="btn btn-primary" data-mod="' + s.id + '|1">Setujui</button>' : "") +
         (s.status !== "ditolak" ? '<button class="btn btn-danger" data-mod="' + s.id + '|0">Tolak</button>' : "") +
-        '<button class="btn btn-danger" data-del-story="' + s.id + '">Hapus</button>' +
         "</div></td></tr>").join("") +
       "</tbody></table></div></div>";
 
@@ -1225,30 +1161,16 @@
     mainEl().querySelectorAll("[data-edit-story]").forEach((b) =>
       b.addEventListener("click", () => modalEditCerita(b.dataset.editStory)));
 
-    mainEl().querySelectorAll("[data-del-story]").forEach((b) =>
-      b.addEventListener("click", async () => {
-        const s = cache.stories.find((x) => x.id === b.dataset.delStory);
-        if (!s) return;
-        if (!(await S.konfirmasi("Hapus cerita \"" + s.judul.slice(0, 60) + "\" dari " + s.penulisNama + "? Cerita hilang permanen dari halaman Cerita Kebaikan.", "Ya, hapus cerita"))) return;
-        try {
-          await S.store.deleteStory(s.id);
-          S.toast("Cerita telah dihapus.", "sukses");
-          vKonten();
-        } catch (e) { S.toast(e.message, "gagal"); }
-      }));
-
-    document.getElementById("form-pengumuman").addEventListener("submit", async (e) => {
+    document.getElementById("form-pengumuman").addEventListener("submit", (e) => {
       e.preventDefault();
       const judul = document.getElementById("an-judul").value.trim();
       if (judul.length < 5) { S.toast("Judul pengumuman terlalu pendek.", "gagal"); return; }
       const arr = bacaPengumuman();
       arr.unshift({ judul, tanggal: new Date().toISOString() });
-      try {
-        await simpanPengumuman(arr);
-        S.toast("Pengumuman diterbitkan.", "sukses");
-        document.getElementById("an-judul").value = "";
-        renderPengumuman();
-      } catch (err) { S.toast(err.message, "gagal"); }
+      localStorage.setItem("sb_pengumuman", JSON.stringify(arr));
+      S.toast("Pengumuman diterbitkan.", "sukses");
+      document.getElementById("an-judul").value = "";
+      renderPengumuman();
     });
 
     function renderPengumuman() {
@@ -1261,11 +1183,11 @@
           '<button class="btn btn-ghost btn-sm" data-hapus-an="' + i + '">' + S.icon("x", 12) + "</button></div>").join("")
         : '<p style="font-size:13px;color:var(--abu)">Belum ada pengumuman.</p>';
       document.querySelectorAll("[data-hapus-an]").forEach((b) =>
-        b.addEventListener("click", async () => {
+        b.addEventListener("click", () => {
           const arr = bacaPengumuman();
           arr.splice(Number(b.dataset.hapusAn), 1);
-          try { await simpanPengumuman(arr); renderPengumuman(); }
-          catch (err) { S.toast(err.message, "gagal"); }
+          localStorage.setItem("sb_pengumuman", JSON.stringify(arr));
+          renderPengumuman();
         }));
       document.querySelectorAll("[data-edit-an]").forEach((b) =>
         b.addEventListener("click", () => {
@@ -1277,39 +1199,17 @@
             isi: '<div class="field"><label>Judul Pengumuman</label><input type="text" id="an-edit-judul" value="' + S.esc(arr[i].judul) + '"/></div>',
             footer: '<button class="btn btn-ghost" onclick="SB.modalClose()">Batal</button><button class="btn btn-primary" id="an-edit-simpan">Simpan</button>'
           });
-          document.getElementById("an-edit-simpan").addEventListener("click", async () => {
+          document.getElementById("an-edit-simpan").addEventListener("click", () => {
             const v = document.getElementById("an-edit-judul").value.trim();
             if (v.length < 5) { S.toast("Judul pengumuman terlalu pendek.", "gagal"); return; }
             arr[i].judul = v;
-            try {
-              await simpanPengumuman(arr);
-              S.modalClose(); S.toast("Pengumuman diperbarui.", "sukses"); renderPengumuman();
-            } catch (err) { S.toast(err.message, "gagal"); }
+            localStorage.setItem("sb_pengumuman", JSON.stringify(arr));
+            S.modalClose(); S.toast("Pengumuman diperbarui.", "sukses"); renderPengumuman();
           });
         }));
     }
     function bacaPengumuman() {
-      /* Supabase: pengumuman tersimpan global di tabel site_content (kunci
-         pengumuman_json) sehingga tampil di semua perangkat & ikut realtime.
-         Mode Demo: tersimpan di localStorage browser ini (data bawaan). */
-      try {
-        if (S.MODE !== "supabase") {
-          const legacy = localStorage.getItem("sb_pengumuman");
-          if (legacy) return JSON.parse(legacy);
-        }
-        const raw = (SB.konten || {}).pengumuman_json || "[]";
-        const arr = JSON.parse(raw);
-        return Array.isArray(arr) ? arr : [];
-      } catch (e) { return []; }
-    }
-    async function simpanPengumuman(arr) {
-      if (S.MODE === "supabase") {
-        await S.store.setContent({ pengumuman_json: JSON.stringify(arr) });
-        SB.konten = SB.konten || {};
-        SB.konten.pengumuman_json = JSON.stringify(arr);
-        return;
-      }
-      localStorage.setItem("sb_pengumuman", JSON.stringify(arr));
+      try { return JSON.parse(localStorage.getItem("sb_pengumuman") || "[]"); } catch (e) { return []; }
     }
   }
 
@@ -1469,18 +1369,9 @@
       '<a class="side-item' + (aktif === m.id ? " on" : "") + '" href="#' + m.id + '">' + S.icon(m.icon, 16) + " " + m.label + "</a>").join("");
   }
 
-  let berhentiWatch = null;   /* pelanggan perubahan data untuk menu aktif */
-  let jadwalWatch = null;     /* debounce muat ulang realtime */
-  function hentikanWatch() {
-    if (typeof berhentiWatch === "function") { try { berhentiWatch(); } catch (e) { /* abaikan */ } }
-    berhentiWatch = null;
-    clearTimeout(jadwalWatch);
-  }
-
   async function renderSection() {
     const id = (location.hash || "#statistik").slice(1);
     hentikanRealtime(); /* hentikan langganan realtime menu sebelumnya */
-    hentikanWatch();
     renderNav();
     const el = mainEl();
     el.innerHTML = '<div class="empty" style="padding:70px 10px">Memuat modul...</div>';
@@ -1498,23 +1389,6 @@
     } catch (e) {
       el.innerHTML = '<div class="panel"><div class="alert alert-danger">' + S.icon("x", 16) + "<span>Gagal memuat modul: " + S.esc(e.message) + "</span></div></div>";
     }
-    /* Realtime: menu data memuat ulang otomatis saat ada perubahan di Supabase
-       (terhubung) atau di browser ini/tab lain (Mode Demo). Menu berbasis form
-       panjang (Isi Website, Pengaturan) dan panel Realtime sendiri dikecualikan. */
-    if (id !== "isi" && id !== "pengaturan" && id !== "realtime") {
-      berhentiWatch = SB.watchData(() => {
-        clearTimeout(jadwalWatch);
-        jadwalWatch = setTimeout(() => {
-          if (document.getElementById("mbk")) { jadwalkanWatchUlang(); return; }
-          renderSection();
-        }, 800);
-      });
-    }
-  }
-
-  function jadwalkanWatchUlang() {
-    clearTimeout(jadwalWatch);
-    jadwalWatch = setTimeout(() => { if (!document.getElementById("mbk")) renderSection(); }, 1200);
   }
 
   document.addEventListener("DOMContentLoaded", async () => {

@@ -77,34 +77,17 @@
       al.innerHTML = S.icon("bell", 16) + "<span>Untuk mencatat ZISWAF, kamu perlu <a href='masuk.html?next=ziswaf.html'><b>masuk</b></a> dulu (bisa <a href='daftar.html'>daftar gratis</a>). Sementara itu, rekap & papan kebaikan tetap bisa dilihat di bawah.</span>";
     }
 
-    /* data — dibungkus muatData() agar bisa dipanggil ulang realtime */
-    async function muatData() {
-      try {
-        const stats = await S.store.ziswafStats();
-        window.__zwStats = stats;
-        isiRekap(stats);
-        $("zw-jenis").innerHTML = Object.entries(S.ZISWAF_JENIS).map(([k, m]) => kartuJenis(k, m)).join("");
-      } catch (e) { $("zw-rekap").innerHTML = '<tr><td colspan="5" style="color:var(--abu)">Gagal memuat rekap: ' + S.esc(e.message) + "</td></tr>"; }
-      try { isiPenerimaan(await S.store.listZiswaf({ publikOnly: true })); }
-      catch (e) { $("zw-penerimaan").innerHTML = '<tr><td colspan="6" style="color:var(--abu)">Gagal memuat: ' + S.esc(e.message) + "</td></tr>"; }
-      try { isiSalur(await S.store.listZiswafSalur({ publikOnly: true })); }
-      catch (e) { $("zw-salur").innerHTML = '<tr><td colspan="6" style="color:var(--abu)">Gagal memuat: ' + S.esc(e.message) + "</td></tr>"; }
-    }
-
-    await muatData();
-
-    /* Realtime: rekap, papan kebaikan, dan daftar penyaluran ikut segar otomatis
-       saat pengelola memverifikasi/menghapus ZISWAF di tempat lain. */
-    if (SB.watchData) {
-      let jadwal = null;
-      SB.watchData(() => {
-        clearTimeout(jadwal);
-        jadwal = setTimeout(() => {
-          if (document.getElementById("mbk")) return;
-          muatData();
-        }, 800);
-      });
-    }
+    /* data */
+    try {
+      const stats = await S.store.ziswafStats();
+      window.__zwStats = stats;
+      isiRekap(stats);
+      $("zw-jenis").innerHTML = Object.entries(S.ZISWAF_JENIS).map(([k, m]) => kartuJenis(k, m)).join("");
+    } catch (e) { $("zw-rekap").innerHTML = '<tr><td colspan="5" style="color:var(--abu)">Gagal memuat rekap: ' + S.esc(e.message) + "</td></tr>"; }
+    try { isiPenerimaan(await S.store.listZiswaf({ publikOnly: true })); }
+    catch (e) { $("zw-penerimaan").innerHTML = '<tr><td colspan="6" style="color:var(--abu)">Gagal memuat: ' + S.esc(e.message) + "</td></tr>"; }
+    try { isiSalur(await S.store.listZiswafSalur({ publikOnly: true })); }
+    catch (e) { $("zw-salur").innerHTML = '<tr><td colspan="6" style="color:var(--abu)">Gagal memuat: ' + S.esc(e.message) + "</td></tr>"; }
 
     /* interaksi form */
     $("zf-jenis").addEventListener("change", (e) => perbaruiDatalist(e.target.value));
